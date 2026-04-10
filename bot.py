@@ -477,48 +477,64 @@ def _meal_keyboard(meal_id: int) -> InlineKeyboardMarkup:
     ])
 
 
+DEFAULT_CAL  = 2000   # средняя норма без профиля
+DEFAULT_PROT = 100    # средний белок без профиля
+
+
 def _meal_summary(result: dict, total_cal: int, total_protein: int,
                   meals_count: int, goal: dict, profile: dict = None) -> str:
     count = meals_count
-    cal = result['calories']
+    cal   = result['calories']
+    prot  = result['protein']
 
-    # % от нормы — если есть профиль берём его норму, иначе стандарт 2000
-    norm = profile['daily_calories'] if profile else 2000
+    # Норма и целевой диапазон
+    if profile:
+        norm     = profile['daily_calories']
+        cal_low  = profile['target_cal_low']
+        cal_high = profile['target_cal_high']
+        prot_target = round(norm * 0.25 / 4)   # ~25% калорий из белка → граммы
+    else:
+        norm = cal_low = cal_high = DEFAULT_CAL
+        prot_target = DEFAULT_PROT
+
     pct = round(cal / norm * 100)
 
     text = (
         f"🍽️ *{result['food_description']}*\n\n"
-        f"🔥 *{cal} ккал* — ~{pct}% от дневной нормы\n"
-        f"🥩 Белки: {result['protein']} г  "
-        f"🧈 Жиры: {result['fat']} г  "
-        f"🍞 Углеводы: {result['carbs']} г\n\n"
+        f"🔥 *{cal} ккал* — ~{pct}% от нормы\n"
+        f"🥩 Белки: *{prot} г*  🧈 Жиры: {result['fat']} г  🍞 Углеводы: {result['carbs']} г\n\n"
         f"💬 _{result.get('comment', '')}_\n\n"
-        f"📊 За сегодня: *{total_cal} ккал* "
-        f"({count} {'приём' if count == 1 else 'приёма' if count < 5 else 'приёмов'} пищи)"
+        f"📊 *За сегодня:*\n"
+        f"🔥 {total_cal} ккал  🥩 белок: *{total_protein} г*"
     )
 
     if profile:
-        low  = profile['target_cal_low']
-        high = profile['target_cal_high']
-        left = high - total_cal
-        if left > 0:
-            text += f"\n🎯 До ориентира: ещё ~*{left} ккал* (цель {low}–{high})"
-        elif total_cal <= high + 200:
-            text += f"\n✅ В рамках ориентира! ({low}–{high} ккал/день)"
-        else:
-            over = total_cal - high
-            text += f"\n⚠️ Выше ориентира на ~*{over} ккал*"
-    elif goal:
-        cal_left = goal['calories'] - total_cal
-        prot_left = goal['protein'] - total_protein
+        cal_left  = cal_high - total_cal
+        prot_left = max(0, prot_target - total_protein)
         if cal_left > 0:
-            text += f"\n🎯 До цели: *{cal_left} ккал* и *{prot_left} г белка*"
-        elif cal_left > -200:
-            text += f"\n✅ Цель выполнена! ({total_cal}/{goal['calories']} ккал)"
+            text += (
+                f"\n\n🎯 Осталось до ориентира: *~{cal_left} ккал*"
+                f" и *~{prot_left} г белка*"
+                f"\n_(ориентир: {cal_low}–{cal_high} ккал/день)_"
+            )
+        elif total_cal <= cal_high + 200:
+            text += f"\n\n✅ В рамках ориентира! ({cal_low}–{cal_high} ккал/день)"
         else:
-            text += f"\n⚠️ Цель превышена на *{abs(cal_left)} ккал*"
+            over = total_cal - cal_high
+            text += f"\n\n⚠️ Выше ориентира на ~*{over} ккал*"
     else:
-        text += f"\n\n💡 Напиши что поел или отправь ещё фото"
+        cal_left  = DEFAULT_CAL  - total_cal
+        prot_left = max(0, DEFAULT_PROT - total_protein)
+        if cal_left > 0:
+            text += (
+                f"\n\n🎯 Осталось до средней нормы: *~{cal_left} ккал*"
+                f" и *~{prot_left} г белка*"
+            )
+        elif cal_left > -200:
+            text += f"\n\n✅ Средняя норма выполнена!"
+        else:
+            text += f"\n\n⚠️ Выше средней нормы на *{abs(cal_left)} ккал*"
+
     return text
 
 
@@ -562,6 +578,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=_meal_keyboard(meal_id),
         )
+        await _maybe_send_profile_prompt(update.message, user_id, context)
 
     except json.JSONDecodeError:
         logger.error("Failed to parse Claude response as JSON")
@@ -722,6 +739,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=_meal_keyboard(meal_id),
         )
+        await _maybe_send_profile_prompt(update.message, user_id, context)
 
     except json.JSONDecodeError:
         await msg.edit_text("😔 Не смог разобрать. Попробуй описать подробнее!")
@@ -735,6 +753,20 @@ def _profile_prompt_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton("👉 Да, давай", callback_data="profile_yes"),
         InlineKeyboardButton("Пропустить", callback_data="profile_skip"),
     ]])
+
+
+async def _maybe_send_profile_prompt(message, user_id: int, context) -> None:
+    """Отправляет приглашение настроить профиль — один раз, сразу после первого результата."""
+    profile = db.get_profile(user_id)
+    if not profile and not context.user_data.get("profile_prompted"):
+        context.user_data["profile_prompted"] = True
+        await message.reply_text(
+            "📊 *Давай настроим калории под тебя и твою цель*\n\n"
+            "Ответь на 4 вопроса — и расчёт станет точнее\n"
+            "Займёт меньше 30 секунд",
+            parse_mode="Markdown",
+            reply_markup=_profile_prompt_keyboard(),
+        )
 
 def _goal_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
@@ -759,17 +791,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Meal actions ──────────────────────────────────────────────
     if data.startswith("confirm_"):
         await query.edit_message_reply_markup(reply_markup=None)
-        # Показываем prompt профиля если профиля ещё нет и ещё не показывали
-        profile = db.get_profile(user_id)
-        if not profile and not context.user_data.get("profile_prompted"):
-            context.user_data["profile_prompted"] = True
-            await query.message.reply_text(
-                "💡 *Хочешь точную норму калорий?*\n\n"
-                "Отвечу на 4 вопроса — посчитаю лично для тебя.\n"
-                "Займёт 30 секунд.",
-                parse_mode="Markdown",
-                reply_markup=_profile_prompt_keyboard(),
-            )
 
     elif data.startswith("delete_"):
         meal_id = int(data.split("_")[1])
