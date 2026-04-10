@@ -50,6 +50,47 @@ class Database:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS profiles (
+                    user_id INTEGER PRIMARY KEY,
+                    goal TEXT NOT NULL,
+                    sex TEXT NOT NULL,
+                    age INTEGER NOT NULL,
+                    height INTEGER NOT NULL,
+                    weight REAL NOT NULL,
+                    daily_calories INTEGER NOT NULL,
+                    target_cal_low INTEGER NOT NULL,
+                    target_cal_high INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+
+    def get_profile(self, user_id: int):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM profiles WHERE user_id = ?", (user_id,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def set_profile(self, user_id: int, goal: str, sex: str, age: int,
+                    height: int, weight: float, daily_calories: int,
+                    target_cal_low: int, target_cal_high: int):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO profiles
+                    (user_id, goal, sex, age, height, weight, daily_calories, target_cal_low, target_cal_high)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    goal = excluded.goal, sex = excluded.sex, age = excluded.age,
+                    height = excluded.height, weight = excluded.weight,
+                    daily_calories = excluded.daily_calories,
+                    target_cal_low = excluded.target_cal_low,
+                    target_cal_high = excluded.target_cal_high
+            """, (user_id, goal, sex, age, height, weight, daily_calories,
+                  target_cal_low, target_cal_high))
             conn.commit()
 
     def add_meal(
