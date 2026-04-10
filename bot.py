@@ -502,7 +502,9 @@ def _meal_summary(result: dict, total_cal: int, total_protein: int,
     text = (
         f"🍽️ *{result['food_description']}*\n\n"
         f"🔥 *{cal} ккал* — ~{pct}% от нормы\n"
-        f"🥩 Белки: *{prot} г*  🧈 Жиры: {result['fat']} г  🍞 Углеводы: {result['carbs']} г\n\n"
+        f"🥩 Белки: *{prot} г*\n"
+        f"🧈 Жиры: {result['fat']} г\n"
+        f"🍞 Углеводы: {result['carbs']} г\n\n"
         f"💬 _{result.get('comment', '')}_\n\n"
         f"📊 *За сегодня:*\n"
         f"🔥 {total_cal} ккал  🥩 белок: *{total_protein} г*"
