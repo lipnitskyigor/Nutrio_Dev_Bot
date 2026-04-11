@@ -795,7 +795,7 @@ async def _finish_profile(message, user_id: int, context) -> None:
         f"Твоя норма: *~{daily} ккал/день*\n"
         f"{goal_text}"
         f"{target_line}\n\n"
-        f"После каждого приёма пищи буду показывать сколько осталось до ориентира 🎯",
+        f"После каждого приёма пищи буду показывать сколько ккал осталось до твоей нормы 🎯",
         parse_mode="Markdown"
     )
 
