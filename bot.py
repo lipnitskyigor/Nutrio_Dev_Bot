@@ -639,38 +639,28 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             weight = float(text.replace(",", "."))
             if not (30 <= weight <= 300):
                 raise ValueError
-            goal     = context.user_data.get("p_goal", "maintain")
-            sex      = context.user_data.get("p_sex", "male")
-            activity = context.user_data.get("p_activity", "moderate")
-            age      = context.user_data["p_age"]
-            height   = context.user_data["p_height"]
-
-            daily, low, high = _calc_calories(sex, age, height, weight, goal, activity)
-
-            db.set_profile(user_id=user_id, goal=goal, sex=sex, age=age,
-                           height=height, weight=weight,
-                           daily_calories=daily, target_cal_low=low, target_cal_high=high)
-            db.log_weight(user_id, weight)
-
-            # Очищаем шаги
-            for k in ("profile_step", "p_goal", "p_sex", "p_activity", "p_age", "p_height"):
-                context.user_data.pop(k, None)
-
-            goal_text = {
-                "lose":     f"🎯 Для похудения: *{low}–{high} ккал/день*",
-                "maintain": f"🎯 Для поддержания веса: *{low}–{high} ккал/день*",
-                "gain":     f"🎯 Для набора массы: *{low}–{high} ккал/день*",
-            }[goal]
-
+            context.user_data["p_weight"] = weight
+            context.user_data["profile_step"] = "target_weight"
             await update.message.reply_text(
-                f"✅ *Всё готово!*\n\n"
-                f"Твоя норма: *~{daily} ккал/день*\n"
-                f"{goal_text}\n\n"
-                f"Теперь после каждого приёма пищи буду показывать сколько осталось до ориентира 🎯",
-                parse_mode="Markdown"
+                "Есть целевой вес?",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("✏️ Да, укажу", callback_data="ptw_yes"),
+                    InlineKeyboardButton("Пропустить", callback_data="ptw_skip"),
+                ]])
             )
         except ValueError:
             await update.message.reply_text("Напиши вес числом в кг, например: *75*", parse_mode="Markdown")
+        return
+
+    if step == "target_weight":
+        try:
+            target_w = float(text.replace(",", "."))
+            if not (30 <= target_w <= 300):
+                raise ValueError
+            db.set_weight_goal(user_id, target_w)
+            await _finish_profile(update.message, user_id, context)
+        except ValueError:
+            await update.message.reply_text("Напиши вес числом в кг, например: *70*", parse_mode="Markdown")
         return
 
     # ── Режим исправления — пользователь нажал "Исправить" ───────
@@ -763,6 +753,51 @@ def _profile_prompt_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton("👉 Да, давай", callback_data="profile_yes"),
         InlineKeyboardButton("Пропустить", callback_data="profile_skip"),
     ]])
+
+
+async def _finish_profile(message, user_id: int, context) -> None:
+    """Сохраняет профиль и отправляет финальный результат."""
+    goal     = context.user_data.get("p_goal", "maintain")
+    sex      = context.user_data.get("p_sex", "male")
+    activity = context.user_data.get("p_activity", "moderate")
+    age      = context.user_data["p_age"]
+    height   = context.user_data["p_height"]
+    weight   = context.user_data["p_weight"]
+
+    daily, low, high = _calc_calories(sex, age, height, weight, goal, activity)
+
+    db.set_profile(user_id=user_id, goal=goal, sex=sex, age=age,
+                   height=height, weight=weight,
+                   daily_calories=daily, target_cal_low=low, target_cal_high=high,
+                   activity=activity)
+    db.log_weight(user_id, weight)
+
+    for k in ("profile_step", "p_goal", "p_sex", "p_activity", "p_age", "p_height", "p_weight"):
+        context.user_data.pop(k, None)
+
+    target = db.get_weight_goal(user_id)
+    target_line = ""
+    if target:
+        diff = weight - target["target_weight"]
+        if diff > 0:
+            target_line = f"\n⚖️ Целевой вес: *{target['target_weight']} кг* (осталось ~{diff:.1f} кг)"
+        else:
+            target_line = f"\n⚖️ Целевой вес: *{target['target_weight']} кг* — уже достигнут! 🏆"
+
+    goal_text = {
+        "lose":     f"🎯 Для похудения: *{low}–{high} ккал/день*",
+        "maintain": f"🎯 Для поддержания веса: *{low}–{high} ккал/день*",
+        "gain":     f"🎯 Для набора массы: *{low}–{high} ккал/день*",
+    }[goal]
+
+    await message.reply_text(
+        f"✅ *Всё готово!*\n\n"
+        f"Твоя норма: *~{daily} ккал/день*\n"
+        f"{goal_text}"
+        f"{target_line}\n\n"
+        f"После каждого приёма пищи буду показывать сколько осталось до ориентира 🎯",
+        parse_mode="Markdown"
+    )
 
 
 async def _maybe_send_profile_prompt(message, user_id: int, context) -> None:
@@ -862,6 +897,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Сколько тебе лет?\n\nНапиши число, например: *28*",
             parse_mode="Markdown"
         )
+
+    elif data == "ptw_yes":
+        context.user_data["profile_step"] = "target_weight"
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            "Напиши целевой вес в кг, например: *70*",
+            parse_mode="Markdown"
+        )
+
+    elif data == "ptw_skip":
+        await query.edit_message_reply_markup(reply_markup=None)
+        await _finish_profile(query.message, user_id, context)
 
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
