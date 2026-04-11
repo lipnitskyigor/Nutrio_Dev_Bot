@@ -124,13 +124,20 @@ def analyze_food_image(image_bytes: bytes, caption: str = None) -> dict:
     return json.loads(raw.strip())
 
 
-def _calc_calories(sex: str, age: int, height: int, weight: float, goal: str):
-    """Mifflin-St Jeor + moderate activity (1.55). Returns (tdee, low, high)."""
+def _calc_calories(sex: str, age: int, height: int, weight: float, goal: str, activity: str = "moderate"):
+    """Mifflin-St Jeor + activity factor. Returns (tdee, low, high)."""
+    activity_factors = {
+        "sedentary": 1.2,
+        "light":     1.375,
+        "moderate":  1.55,
+        "active":    1.725,
+    }
+    factor = activity_factors.get(activity, 1.55)
     if sex == "male":
         bmr = 10 * weight + 6.25 * height - 5 * age + 5
     else:
         bmr = 10 * weight + 6.25 * height - 5 * age - 161
-    tdee = bmr * 1.55
+    tdee = bmr * factor
     if goal == "lose":
         center = tdee * 0.80
     elif goal == "gain":
@@ -632,12 +639,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             weight = float(text.replace(",", "."))
             if not (30 <= weight <= 300):
                 raise ValueError
-            goal   = context.user_data.get("p_goal", "maintain")
-            sex    = context.user_data.get("p_sex", "male")
-            age    = context.user_data["p_age"]
-            height = context.user_data["p_height"]
+            goal     = context.user_data.get("p_goal", "maintain")
+            sex      = context.user_data.get("p_sex", "male")
+            activity = context.user_data.get("p_activity", "moderate")
+            age      = context.user_data["p_age"]
+            height   = context.user_data["p_height"]
 
-            daily, low, high = _calc_calories(sex, age, height, weight, goal)
+            daily, low, high = _calc_calories(sex, age, height, weight, goal, activity)
 
             db.set_profile(user_id=user_id, goal=goal, sex=sex, age=age,
                            height=height, weight=weight,
@@ -645,7 +653,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.log_weight(user_id, weight)
 
             # Очищаем шаги
-            for k in ("profile_step", "p_goal", "p_sex", "p_age", "p_height"):
+            for k in ("profile_step", "p_goal", "p_sex", "p_activity", "p_age", "p_height"):
                 context.user_data.pop(k, None)
 
             goal_text = {
@@ -783,6 +791,14 @@ def _sex_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton("👩 Женский", callback_data="ps_female"),
     ]])
 
+def _activity_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🪑 Сидячий (офис, без спорта)", callback_data="pa_sedentary")],
+        [InlineKeyboardButton("🚶 Лёгкая активность (1–2 раза в неделю)", callback_data="pa_light")],
+        [InlineKeyboardButton("🏃 Умеренная (3–5 раз в неделю)", callback_data="pa_moderate")],
+        [InlineKeyboardButton("💪 Высокая (каждый день)", callback_data="pa_active")],
+    ])
+
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -831,6 +847,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("ps_"):  # sex selected
         sex = data[3:]  # male / female
         context.user_data["p_sex"] = sex
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            "Твой образ жизни?",
+            reply_markup=_activity_keyboard()
+        )
+
+    elif data.startswith("pa_"):  # activity selected
+        activity = data[3:]  # sedentary / light / moderate / active
+        context.user_data["p_activity"] = activity
         context.user_data["profile_step"] = "age"
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
