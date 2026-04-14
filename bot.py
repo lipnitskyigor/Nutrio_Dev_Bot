@@ -79,7 +79,7 @@ def analyze_food_image(image_bytes: bytes, caption: str = None) -> dict:
     caption_hint = f'\nПользователь также написал: "{caption}"' if caption else ""
 
     response = claude.messages.create(
-        model="claude-3-5-haiku-20241022",
+        model="claude-3-haiku-20240307",
         max_tokens=1024,
         messages=[
             {
