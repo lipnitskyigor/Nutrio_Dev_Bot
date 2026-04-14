@@ -8,7 +8,7 @@ from datetime import datetime, date
 from io import BytesIO
 
 import anthropic
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -243,6 +243,24 @@ def _timezone_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+MENU_ADD    = "🍽️ Добавить еду"
+MENU_DIARY  = "📔 Дневник"
+MENU_PROFILE = "👤 Профиль"
+MENU_HELP   = "❓ Помощь"
+
+
+def _main_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton(MENU_ADD)],
+            [KeyboardButton(MENU_DIARY)],
+            [KeyboardButton(MENU_PROFILE), KeyboardButton(MENU_HELP)],
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Отправь фото или напиши что поел...",
+    )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     name = user.first_name or "друг"
@@ -255,10 +273,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Returning user
         await update.message.reply_text(
             f"С возвращением, {name}! 👋\n\n"
-            "📸 Отправь фото еды или напиши что поел — посчитаю.\n\n"
-            "/today — итог за сегодня\n"
-            "/help — все команды",
-            parse_mode="Markdown"
+            "📸 Отправь фото еды или напиши что поел — посчитаю.",
+            parse_mode="Markdown",
+            reply_markup=_main_keyboard(),
         )
     else:
         # New user — onboarding
@@ -268,7 +285,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📸 *Отправь фото любого блюда*\n"
             "✏️ Или напиши что поел\n\n"
             "Попробуй прямо сейчас ↓",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=_main_keyboard(),
         )
 
 
@@ -690,6 +708,42 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.effective_user.id
+
+    # ── Меню-кнопки ───────────────────────────────────────────────
+    if text == MENU_ADD:
+        await update.message.reply_text(
+            "📸 Отправь фото еды или напиши что поел — посчитаю!"
+        )
+        return
+
+    if text == MENU_DIARY:
+        await today_command(update, context)
+        return
+
+    if text == MENU_PROFILE:
+        profile = db.get_profile(user_id)
+        if not profile:
+            await update.message.reply_text(
+                "📋 Профиль не настроен.\n\nОтправь любое фото еды — и я предложу его настроить!"
+            )
+        else:
+            goal_labels = {"lose": "Похудеть 🥦", "maintain": "Держать вес ⚖️", "gain": "Набрать массу 💪"}
+            activity_labels = {"sedentary": "Сидячий 🪑", "light": "Лёгкая 🚶", "moderate": "Умеренная 🏃", "active": "Высокая 💪"}
+            await update.message.reply_text(
+                f"👤 *Твой профиль*\n\n"
+                f"🎯 Цель: {goal_labels.get(profile['goal'], profile['goal'])}\n"
+                f"⚡ Активность: {activity_labels.get(profile['activity'], profile['activity'])}\n"
+                f"📏 Рост: {profile['height']} см\n"
+                f"⚖️ Вес: {profile['weight']} кг\n\n"
+                f"🔥 Норма: *{profile['daily_calories']} ккал/день*\n"
+                f"🎯 Диапазон: {profile['target_cal_low']}–{profile['target_cal_high']} ккал",
+                parse_mode="Markdown"
+            )
+        return
+
+    if text == MENU_HELP:
+        await help_command(update, context)
+        return
 
     # ── Profile step: возраст / рост / вес ───────────────────────
     step = context.user_data.get("profile_step")
