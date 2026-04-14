@@ -1031,6 +1031,29 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=_notify_keyboard(notif)
         )
 
+    elif data == "quick_add":
+        await query.answer()
+        await query.message.reply_text(
+            "📸 Отправь фото еды или напиши что поел — посчитаю!"
+        )
+
+    elif data.startswith("notif_snooze_"):
+        meal = data[len("notif_snooze_"):]  # breakfast / lunch / dinner
+        notif = db.get_or_create_notifications(user_id)
+        db.save_notifications(
+            user_id,
+            0 if meal == "breakfast" else notif["breakfast_enabled"],
+            0 if meal == "lunch"     else notif["lunch_enabled"],
+            0 if meal == "dinner"    else notif["dinner_enabled"],
+            notif["timezone_offset"],
+        )
+        meal_names = {"breakfast": "завтрак", "lunch": "обед", "dinner": "ужин"}
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            f"✅ Напоминание про {meal_names.get(meal, meal)} отключено.\n"
+            f"Включить обратно: /notify"
+        )
+
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1213,11 +1236,15 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(
                     chat_id=user["user_id"],
                     text=(
-                        f"{emoji} Не забудь внести свой {name}!\n\n"
-                        f"🎯 Дневная цель: {goal_cal} ккал\n"
-                        f"📊 За сегодня: {total_cal} ккал\n\n"
-                        f"Отправь фото или напиши что поел 👇"
+                        f"{emoji} Не забудь внести свой {name}!\n"
+                        f"Дневная цель: {goal_cal} ккал. За сегодня: {total_cal} ккал\n\n"
+                        f"📸 Отправь фото еды\n"
+                        f"✏️ или просто напиши текстом!"
                     ),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton(f"🍽️ Добавить еду", callback_data="quick_add")],
+                        [InlineKeyboardButton(f"❌ Не напоминать про {name}", callback_data=f"notif_snooze_{meal_type}")],
+                    ]),
                 )
             except Exception as e:
                 logger.error(f"Failed to send reminder to {user['user_id']}: {e}")
