@@ -39,7 +39,7 @@ claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 def analyze_food_text(text: str) -> dict:
     """Send food description to Claude and get calorie analysis."""
     response = claude.messages.create(
-        model="claude-haiku-4-5",
+        model="claude-opus-4-5",
         max_tokens=1024,
         messages=[
             {
@@ -79,7 +79,7 @@ def analyze_food_image(image_bytes: bytes, caption: str = None) -> dict:
     caption_hint = f'\nПользователь также написал: "{caption}"' if caption else ""
 
     response = claude.messages.create(
-        model="claude-haiku-4-5",
+        model="claude-opus-4-5",
         max_tokens=1024,
         messages=[
             {
