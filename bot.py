@@ -201,6 +201,25 @@ def _notify_keyboard(notif: dict) -> InlineKeyboardMarkup:
     ])
 
 
+def _onboarding_timezone_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("UTC+2 (Киев)", callback_data="onb_tz_2"),
+            InlineKeyboardButton("UTC+3 (Москва)", callback_data="onb_tz_3"),
+        ],
+        [
+            InlineKeyboardButton("UTC+4 (Баку)", callback_data="onb_tz_4"),
+            InlineKeyboardButton("UTC+5 (Ташкент)", callback_data="onb_tz_5"),
+        ],
+        [
+            InlineKeyboardButton("UTC+6", callback_data="onb_tz_6"),
+            InlineKeyboardButton("UTC+7 (Новосиб)", callback_data="onb_tz_7"),
+            InlineKeyboardButton("UTC+8", callback_data="onb_tz_8"),
+        ],
+        [InlineKeyboardButton("❌ Не напоминать", callback_data="onb_tz_skip")],
+    ])
+
+
 def _timezone_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
@@ -870,6 +889,13 @@ async def _finish_profile(message, user_id: int, context) -> None:
         parse_mode="Markdown"
     )
 
+    await message.reply_text(
+        "🔔 *Настроим напоминания о приёмах пищи?*\n\n"
+        "Буду напоминать про завтрак, обед и ужин — выбери свой часовой пояс:",
+        parse_mode="Markdown",
+        reply_markup=_onboarding_timezone_keyboard()
+    )
+
 
 async def _maybe_send_profile_prompt(message, user_id: int, context) -> None:
     """Отправляет приглашение настроить профиль — один раз, сразу после первого результата."""
@@ -1030,6 +1056,29 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             _notify_text(notif), parse_mode="Markdown",
             reply_markup=_notify_keyboard(notif)
         )
+
+    elif data.startswith("onb_tz_"):
+        val = data[len("onb_tz_"):]
+        if val == "skip":
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.message.reply_text(
+                "Окей, без напоминаний 👌\n"
+                "Включить в любой момент: /notify"
+            )
+        else:
+            offset = int(val)
+            db.save_notifications(user_id, 1, 1, 1, offset)
+            tz_label = _tz_str(offset)
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.message.reply_text(
+                f"🔔 *Напоминания включены!*\n\n"
+                f"🌍 Часовой пояс: {tz_label}\n"
+                f"☕ Завтрак — 9:00\n"
+                f"🍲 Обед — 13:00\n"
+                f"🍽️ Ужин — 19:00\n\n"
+                f"Настроить: /notify",
+                parse_mode="Markdown"
+            )
 
     elif data == "quick_add":
         await query.answer()
