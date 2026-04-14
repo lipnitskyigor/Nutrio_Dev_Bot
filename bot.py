@@ -39,7 +39,7 @@ claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 def analyze_food_text(text: str) -> dict:
     """Send food description to Claude and get calorie analysis."""
     response = claude.messages.create(
-        model="claude-opus-4-5",
+        model="claude-haiku-3-5",
         max_tokens=1024,
         messages=[
             {
@@ -79,7 +79,7 @@ def analyze_food_image(image_bytes: bytes, caption: str = None) -> dict:
     caption_hint = f'\nПользователь также написал: "{caption}"' if caption else ""
 
     response = claude.messages.create(
-        model="claude-opus-4-5",
+        model="claude-haiku-3-5",
         max_tokens=1024,
         messages=[
             {
@@ -155,6 +155,75 @@ def _goal_label(goal: str) -> str:
     return {"lose": "похудеть", "maintain": "держать вес", "gain": "набрать массу"}.get(goal, goal)
 
 
+# ── Notifications helpers ──────────────────────────────────────────
+
+sent_reminders: set = set()
+
+
+def _tz_str(offset: int) -> str:
+    return f"UTC+{offset}" if offset >= 0 else f"UTC{offset}"
+
+
+def _local_time(offset: int) -> str:
+    from datetime import timezone, timedelta
+    tz = timezone(timedelta(hours=offset))
+    return datetime.now(tz).strftime("%H:%M")
+
+
+def _notify_text(notif: dict) -> str:
+    tz = notif["timezone_offset"]
+    b = "✅" if notif["breakfast_enabled"] else "❌"
+    l = "✅" if notif["lunch_enabled"] else "❌"
+    d = "✅" if notif["dinner_enabled"] else "❌"
+    return (
+        f"⏰ *Настройка напоминаний*\n\n"
+        f"🌍 Часовой пояс: {_tz_str(tz)} (сейчас {_local_time(tz)})\n\n"
+        f"☕ Завтрак — {notif['breakfast_time']} ({b})\n"
+        f"🍲 Обед — {notif['lunch_time']} ({l})\n"
+        f"🍽️ Ужин — {notif['dinner_time']} ({d})\n\n"
+        f"⚠️ Рекомендуем держать минимум 1 напоминание включённым"
+    )
+
+
+def _notify_keyboard(notif: dict) -> InlineKeyboardMarkup:
+    b = f"☕ Завтрак {'✅' if notif['breakfast_enabled'] else '❌'}"
+    l = f"🍲 Обед {'✅' if notif['lunch_enabled'] else '❌'}"
+    d = f"🍽️ Ужин {'✅' if notif['dinner_enabled'] else '❌'}"
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Включить все", callback_data="notif_all_on"),
+            InlineKeyboardButton("❌ Отключить все", callback_data="notif_all_off"),
+        ],
+        [InlineKeyboardButton(b, callback_data="notif_toggle_breakfast")],
+        [InlineKeyboardButton(l, callback_data="notif_toggle_lunch")],
+        [InlineKeyboardButton(d, callback_data="notif_toggle_dinner")],
+        [InlineKeyboardButton("🌍 Изменить часовой пояс", callback_data="notif_timezone")],
+    ])
+
+
+def _timezone_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("UTC+0", callback_data="tz_0"),
+            InlineKeyboardButton("UTC+1", callback_data="tz_1"),
+            InlineKeyboardButton("UTC+2", callback_data="tz_2"),
+            InlineKeyboardButton("UTC+3 🇷🇺", callback_data="tz_3"),
+        ],
+        [
+            InlineKeyboardButton("UTC+4", callback_data="tz_4"),
+            InlineKeyboardButton("UTC+5", callback_data="tz_5"),
+            InlineKeyboardButton("UTC+6", callback_data="tz_6"),
+            InlineKeyboardButton("UTC+7", callback_data="tz_7"),
+        ],
+        [
+            InlineKeyboardButton("UTC+8", callback_data="tz_8"),
+            InlineKeyboardButton("UTC+9", callback_data="tz_9"),
+            InlineKeyboardButton("UTC+10", callback_data="tz_10"),
+            InlineKeyboardButton("UTC+11", callback_data="tz_11"),
+        ],
+    ])
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     name = user.first_name or "друг"
@@ -202,7 +271,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/target 75 — установить целевой вес\n"
         "/target — посмотреть целевой вес и сколько осталось\n"
         "/progress — динамика веса за 7 дней с 🟢🔴 изменениями\n\n"
-        "💡 Совет: чем чётче видна еда на фото, тем точнее результат!",
+        "💡 Совет: чем чётче видна еда на фото, тем точнее результат!\n\n"
+        "🔔 *Напоминания:*\n"
+        "/notify — настроить напоминания о приёмах пищи",
         parse_mode="Markdown"
     )
 
@@ -910,6 +981,56 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_reply_markup(reply_markup=None)
         await _finish_profile(query.message, user_id, context)
 
+    # ── Notifications ─────────────────────────────────────────────
+    elif data in ("notif_all_on", "notif_all_off"):
+        notif = db.get_or_create_notifications(user_id)
+        val = 1 if data == "notif_all_on" else 0
+        db.save_notifications(user_id, val, val, val, notif["timezone_offset"])
+        notif = db.get_notifications(user_id)
+        await query.edit_message_text(
+            _notify_text(notif), parse_mode="Markdown",
+            reply_markup=_notify_keyboard(notif)
+        )
+
+    elif data.startswith("notif_toggle_"):
+        meal = data[len("notif_toggle_"):]   # breakfast / lunch / dinner
+        notif = db.get_or_create_notifications(user_id)
+        new_val = 0 if notif[f"{meal}_enabled"] else 1
+        db.save_notifications(
+            user_id,
+            new_val if meal == "breakfast" else notif["breakfast_enabled"],
+            new_val if meal == "lunch"     else notif["lunch_enabled"],
+            new_val if meal == "dinner"    else notif["dinner_enabled"],
+            notif["timezone_offset"],
+        )
+        notif = db.get_notifications(user_id)
+        await query.edit_message_text(
+            _notify_text(notif), parse_mode="Markdown",
+            reply_markup=_notify_keyboard(notif)
+        )
+
+    elif data == "notif_timezone":
+        await query.edit_message_text(
+            "🌍 Выбери свой часовой пояс:",
+            reply_markup=_timezone_keyboard()
+        )
+
+    elif data.startswith("tz_"):
+        offset = int(data[3:])
+        notif = db.get_or_create_notifications(user_id)
+        db.save_notifications(
+            user_id,
+            notif["breakfast_enabled"],
+            notif["lunch_enabled"],
+            notif["dinner_enabled"],
+            offset,
+        )
+        notif = db.get_notifications(user_id)
+        await query.edit_message_text(
+            _notify_text(notif), parse_mode="Markdown",
+            reply_markup=_notify_keyboard(notif)
+        )
+
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1047,6 +1168,61 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    notif = db.get_or_create_notifications(user_id)
+    await update.message.reply_text(
+        _notify_text(notif),
+        parse_mode="Markdown",
+        reply_markup=_notify_keyboard(notif),
+    )
+
+
+async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
+    """Джоб запускается каждую минуту — рассылает напоминания о приёмах пищи."""
+    from datetime import timezone, timedelta
+
+    users = db.get_all_notification_users()
+    for user in users:
+        tz_offset = user.get("timezone_offset", 3)
+        tz = timezone(timedelta(hours=tz_offset))
+        now = datetime.now(tz)
+        current_time = now.strftime("%H:%M")
+        today = now.strftime("%Y-%m-%d")
+
+        meals_to_check = [
+            ("breakfast", user["breakfast_enabled"], user["breakfast_time"], "☕", "завтрак"),
+            ("lunch",     user["lunch_enabled"],     user["lunch_time"],     "🍲", "обед"),
+            ("dinner",    user["dinner_enabled"],     user["dinner_time"],    "🍽️", "ужин"),
+        ]
+
+        for meal_type, enabled, meal_time, emoji, name in meals_to_check:
+            if not enabled or meal_time != current_time:
+                continue
+            key = f"{user['user_id']}:{meal_type}:{today}"
+            if key in sent_reminders:
+                continue
+            sent_reminders.add(key)
+
+            meals = db.get_meals_for_day(user["user_id"], today)
+            total_cal = sum(m["calories"] for m in meals)
+            profile = db.get_profile(user["user_id"])
+            goal_cal = profile["daily_calories"] if profile else 2000
+
+            try:
+                await context.bot.send_message(
+                    chat_id=user["user_id"],
+                    text=(
+                        f"{emoji} Не забудь внести свой {name}!\n\n"
+                        f"🎯 Дневная цель: {goal_cal} ккал\n"
+                        f"📊 За сегодня: {total_cal} ккал\n\n"
+                        f"Отправь фото или напиши что поел 👇"
+                    ),
+                )
+            except Exception as e:
+                logger.error(f"Failed to send reminder to {user['user_id']}: {e}")
+
+
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
@@ -1062,9 +1238,13 @@ def main():
     app.add_handler(CommandHandler("delete", delete_command))
     app.add_handler(CommandHandler("edit", edit_command))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("notify", notify_command))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(callback_handler))
+
+    # Напоминания — проверка каждую минуту
+    app.job_queue.run_repeating(send_reminders, interval=60, first=5)
 
     logger.info("Bot started!")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)

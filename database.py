@@ -65,6 +65,18 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS notifications (
+                    user_id INTEGER PRIMARY KEY,
+                    breakfast_enabled INTEGER NOT NULL DEFAULT 1,
+                    breakfast_time TEXT NOT NULL DEFAULT '09:00',
+                    lunch_enabled INTEGER NOT NULL DEFAULT 1,
+                    lunch_time TEXT NOT NULL DEFAULT '13:00',
+                    dinner_enabled INTEGER NOT NULL DEFAULT 1,
+                    dinner_time TEXT NOT NULL DEFAULT '19:00',
+                    timezone_offset INTEGER NOT NULL DEFAULT 3
+                )
+            """)
             conn.commit()
 
     def get_profile(self, user_id: int):
@@ -277,3 +289,52 @@ class Database:
                 (user_id, day),
             )
             conn.commit()
+
+    # ── Notifications ─────────────────────────────────────────────
+
+    def get_notifications(self, user_id: int):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM notifications WHERE user_id = ?", (user_id,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_or_create_notifications(self, user_id: int) -> dict:
+        notif = self.get_notifications(user_id)
+        if not notif:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO notifications (user_id) VALUES (?)",
+                    (user_id,)
+                )
+                conn.commit()
+            notif = self.get_notifications(user_id)
+        return notif
+
+    def save_notifications(self, user_id: int, breakfast_enabled: int,
+                           lunch_enabled: int, dinner_enabled: int,
+                           timezone_offset: int):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO notifications
+                    (user_id, breakfast_enabled, lunch_enabled, dinner_enabled, timezone_offset)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    breakfast_enabled = excluded.breakfast_enabled,
+                    lunch_enabled     = excluded.lunch_enabled,
+                    dinner_enabled    = excluded.dinner_enabled,
+                    timezone_offset   = excluded.timezone_offset
+            """, (user_id, breakfast_enabled, lunch_enabled, dinner_enabled, timezone_offset))
+            conn.commit()
+
+    def get_all_notification_users(self) -> List[Dict[str, Any]]:
+        """Возвращает всех пользователей с хотя бы одним активным напоминанием."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT * FROM notifications
+                WHERE breakfast_enabled = 1 OR lunch_enabled = 1 OR dinner_enabled = 1
+            """)
+            return [dict(row) for row in cursor.fetchall()]
