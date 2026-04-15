@@ -253,7 +253,6 @@ MENU_HELP   = "❓ Помощь"
 def _main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(MENU_ADD)],
             [KeyboardButton(MENU_DIARY)],
             [KeyboardButton(MENU_PROFILE), KeyboardButton(MENU_HELP)],
         ],
@@ -1013,6 +1012,7 @@ async def _finish_profile(message, user_id: int, context) -> None:
     await message.reply_text(
         f"✅ *Всё готово!*\n\n"
         f"Твоя норма: *~{daily} ккал/день*\n"
+        f"🥩 Белок: *~{protein} г/день*\n"
         f"{goal_text}"
         f"{target_line}\n\n"
         f"После каждого приёма пищи буду показывать сколько ккал осталось до твоей нормы 🎯",
