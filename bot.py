@@ -808,6 +808,70 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Напиши вес числом в кг, например: *70*", parse_mode="Markdown")
         return
 
+    if step == "timezone":
+        try:
+            parts = text.strip().replace(".", ":").split(":")
+            user_hour = int(parts[0])
+            if not (0 <= user_hour <= 23):
+                raise ValueError
+            from datetime import timezone as tz_mod
+            utc_hour = datetime.now(tz_mod.utc).hour
+            offset = user_hour - utc_hour
+            if offset > 12:
+                offset -= 24
+            elif offset < -12:
+                offset += 24
+            context.user_data.pop("profile_step", None)
+            db.save_notifications(user_id, 1, 1, 1, offset)
+            sign = "+" if offset >= 0 else ""
+            await update.message.reply_text(
+                f"🔔 *Напоминания включены!*\n\n"
+                f"🕐 Часовой пояс определён: UTC{sign}{offset}\n"
+                f"☕ Завтрак — 9:00\n"
+                f"🍲 Обед — 13:00\n"
+                f"🍽️ Ужин — 19:00\n\n"
+                f"Настроить: /notify",
+                parse_mode="Markdown"
+            )
+        except (ValueError, IndexError):
+            await update.message.reply_text(
+                "Не понял 🤔 Напиши время в формате *ЧЧ:ММ*, например: *23:15*",
+                parse_mode="Markdown"
+            )
+        return
+
+    # ── Обработка состояния изменения таймзоны через /notify ──────
+    if context.user_data.get("setting_timezone"):
+        try:
+            parts = text.strip().replace(".", ":").split(":")
+            user_hour = int(parts[0])
+            if not (0 <= user_hour <= 23):
+                raise ValueError
+            from datetime import timezone as tz_mod
+            utc_hour = datetime.now(tz_mod.utc).hour
+            offset = user_hour - utc_hour
+            if offset > 12:
+                offset -= 24
+            elif offset < -12:
+                offset += 24
+            context.user_data.pop("setting_timezone", None)
+            notif = db.get_or_create_notifications(user_id)
+            db.save_notifications(user_id, notif["breakfast_enabled"],
+                                  notif["lunch_enabled"], notif["dinner_enabled"], offset)
+            sign = "+" if offset >= 0 else ""
+            notif = db.get_notifications(user_id)
+            await update.message.reply_text(
+                f"✅ Часовой пояс обновлён: UTC{sign}{offset}\n\n" + _notify_text(notif),
+                parse_mode="Markdown",
+                reply_markup=_notify_keyboard(notif)
+            )
+        except (ValueError, IndexError):
+            await update.message.reply_text(
+                "Не понял 🤔 Напиши время в формате *ЧЧ:ММ*, например: *23:15*",
+                parse_mode="Markdown"
+            )
+        return
+
     # ── Режим исправления — пользователь нажал "Исправить" ───────
     if "editing_meal_id" in context.user_data:
         meal_id = context.user_data.pop("editing_meal_id")
@@ -944,11 +1008,11 @@ async def _finish_profile(message, user_id: int, context) -> None:
         parse_mode="Markdown"
     )
 
+    context.user_data["profile_step"] = "timezone"
     await message.reply_text(
-        "🔔 *Настроим напоминания о приёмах пищи?*\n\n"
-        "Буду напоминать про завтрак, обед и ужин — выбери свой часовой пояс:",
-        parse_mode="Markdown",
-        reply_markup=_onboarding_timezone_keyboard()
+        "🔔 *Настроим напоминания о приёмах пищи!*\n\n"
+        "Напиши сколько сейчас у тебя времени, например: *23:15*",
+        parse_mode="Markdown"
     )
 
 
@@ -1091,9 +1155,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "notif_timezone":
-        await query.edit_message_text(
-            "🌍 Выбери свой часовой пояс:",
-            reply_markup=_timezone_keyboard()
+        context.user_data["setting_timezone"] = True
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            "🕐 Напиши сколько сейчас у тебя времени, например: *23:15*\n\n"
+            "Определю часовой пояс автоматически.",
+            parse_mode="Markdown"
         )
 
     elif data.startswith("tz_"):
