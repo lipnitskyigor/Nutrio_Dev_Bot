@@ -204,41 +204,42 @@ def _notify_keyboard(notif: dict) -> InlineKeyboardMarkup:
 def _onboarding_timezone_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("UTC+2 (Киев)", callback_data="onb_tz_2"),
-            InlineKeyboardButton("UTC+3 (Москва)", callback_data="onb_tz_3"),
+            InlineKeyboardButton("🇺🇦 Киев",    callback_data="onb_tz_2"),
+            InlineKeyboardButton("🇷🇺 Москва",  callback_data="onb_tz_3"),
         ],
         [
-            InlineKeyboardButton("UTC+4 (Баку)", callback_data="onb_tz_4"),
-            InlineKeyboardButton("UTC+5 (Ташкент)", callback_data="onb_tz_5"),
+            InlineKeyboardButton("🇦🇿 Баку",    callback_data="onb_tz_4"),
+            InlineKeyboardButton("🇰🇿 Алматы",  callback_data="onb_tz_5"),
         ],
         [
-            InlineKeyboardButton("UTC+6", callback_data="onb_tz_6"),
-            InlineKeyboardButton("UTC+7 (Новосиб)", callback_data="onb_tz_7"),
-            InlineKeyboardButton("UTC+8", callback_data="onb_tz_8"),
+            InlineKeyboardButton("🇺🇿 Ташкент", callback_data="onb_tz_5"),
+            InlineKeyboardButton("Новосибирск", callback_data="onb_tz_7"),
         ],
-        [InlineKeyboardButton("❌ Не напоминать", callback_data="onb_tz_skip")],
+        [
+            InlineKeyboardButton("Иркутск",     callback_data="onb_tz_8"),
+            InlineKeyboardButton("Владивосток", callback_data="onb_tz_10"),
+        ],
+        [InlineKeyboardButton("❌ Пропустить",  callback_data="onb_tz_skip")],
     ])
 
 
 def _timezone_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("UTC+0", callback_data="tz_0"),
-            InlineKeyboardButton("UTC+1", callback_data="tz_1"),
-            InlineKeyboardButton("UTC+2", callback_data="tz_2"),
-            InlineKeyboardButton("UTC+3 🇷🇺", callback_data="tz_3"),
+            InlineKeyboardButton("🇺🇦 Киев",    callback_data="tz_2"),
+            InlineKeyboardButton("🇷🇺 Москва",  callback_data="tz_3"),
         ],
         [
-            InlineKeyboardButton("UTC+4", callback_data="tz_4"),
-            InlineKeyboardButton("UTC+5", callback_data="tz_5"),
-            InlineKeyboardButton("UTC+6", callback_data="tz_6"),
-            InlineKeyboardButton("UTC+7", callback_data="tz_7"),
+            InlineKeyboardButton("🇦🇿 Баку",    callback_data="tz_4"),
+            InlineKeyboardButton("🇰🇿 Алматы",  callback_data="tz_5"),
         ],
         [
-            InlineKeyboardButton("UTC+8", callback_data="tz_8"),
-            InlineKeyboardButton("UTC+9", callback_data="tz_9"),
-            InlineKeyboardButton("UTC+10", callback_data="tz_10"),
-            InlineKeyboardButton("UTC+11", callback_data="tz_11"),
+            InlineKeyboardButton("🇺🇿 Ташкент", callback_data="tz_5"),
+            InlineKeyboardButton("Новосибирск", callback_data="tz_7"),
+        ],
+        [
+            InlineKeyboardButton("Иркутск",     callback_data="tz_8"),
+            InlineKeyboardButton("Владивосток", callback_data="tz_10"),
         ],
     ])
 
