@@ -725,11 +725,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         profile = db.get_profile(user_id)
         if not profile:
             await update.message.reply_text(
-                "📋 Профиль не настроен.\n\nОтправь любое фото еды — и я предложу его настроить!"
+                "📋 Профиль не настроен.\n\nОтправь любое фото еды — и я предложу его настроить!",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("👉 Настроить профиль", callback_data="profile_yes")
+                ]])
             )
         else:
             goal_labels = {"lose": "Похудеть 🥦", "maintain": "Держать вес ⚖️", "gain": "Набрать массу 💪"}
             activity_labels = {"sedentary": "Сидячий 🪑", "light": "Лёгкая 🚶", "moderate": "Умеренная 🏃", "active": "Высокая 💪"}
+            protein = round(profile['daily_calories'] * 0.25 / 4)
             await update.message.reply_text(
                 f"👤 *Твой профиль*\n\n"
                 f"🎯 Цель: {goal_labels.get(profile['goal'], profile['goal'])}\n"
@@ -737,8 +741,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📏 Рост: {profile['height']} см\n"
                 f"⚖️ Вес: {profile['weight']} кг\n\n"
                 f"🔥 Норма: *{profile['daily_calories']} ккал/день*\n"
+                f"🥩 Белок: *{protein} г/день*\n"
                 f"🎯 Диапазон: {profile['target_cal_low']}–{profile['target_cal_high']} ккал",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("✏️ Изменить профиль", callback_data="profile_yes")
+                ]])
             )
         return
 
@@ -980,6 +988,9 @@ async def _finish_profile(message, user_id: int, context) -> None:
                    daily_calories=daily, target_cal_low=low, target_cal_high=high,
                    activity=activity)
     db.log_weight(user_id, weight)
+    # Синхронизируем goals таблицу чтобы /goal тоже знал норму
+    protein = round(daily * 0.25 / 4)  # ~25% калорий из белка
+    db.set_goal(user_id, daily, protein)
 
     for k in ("profile_step", "p_goal", "p_sex", "p_activity", "p_age", "p_height", "p_weight"):
         context.user_data.pop(k, None)
