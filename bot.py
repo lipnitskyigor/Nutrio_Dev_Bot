@@ -739,9 +739,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"⚡ Активность: {activity_labels.get(profile['activity'], profile['activity'])}\n"
                 f"📏 Рост: {profile['height']} см\n"
                 f"⚖️ Вес: {profile['weight']} кг\n\n"
-                f"🔥 Норма: *{profile['daily_calories']} ккал/день*\n"
-                f"🥩 Белок: *{protein} г/день*\n"
-                f"🎯 Диапазон: {profile['target_cal_low']}–{profile['target_cal_high']} ккал",
+                f"🔥 Калории: *{profile['target_cal_low']}–{profile['target_cal_high']} ккал/день*\n"
+                f"🥩 Белок: *{protein} г/день*",
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("✏️ Изменить профиль", callback_data="profile_yes")
@@ -1003,19 +1002,19 @@ async def _finish_profile(message, user_id: int, context) -> None:
         else:
             target_line = f"\n⚖️ Целевой вес: *{target['target_weight']} кг* — уже достигнут! 🏆"
 
-    goal_text = {
-        "lose":     f"🎯 Для похудения: *{low}–{high} ккал/день*",
-        "maintain": f"🎯 Для поддержания веса: *{low}–{high} ккал/день*",
-        "gain":     f"🎯 Для набора массы: *{low}–{high} ккал/день*",
+    goal_label = {
+        "lose":     "Похудеть",
+        "maintain": "Держать вес",
+        "gain":     "Набрать массу",
     }[goal]
 
     await message.reply_text(
         f"✅ *Всё готово!*\n\n"
-        f"Твоя норма: *~{daily} ккал/день*\n"
-        f"🥩 Белок: *~{protein} г/день*\n"
-        f"{goal_text}"
+        f"🎯 Цель: *{goal_label}*\n"
+        f"🔥 Калории: *{low}–{high} ккал/день*\n"
+        f"🥩 Белок: *~{protein} г/день*"
         f"{target_line}\n\n"
-        f"После каждого приёма пищи буду показывать сколько ккал осталось до твоей нормы 🎯",
+        f"После каждого приёма пищи буду показывать сколько ккал осталось до цели 🎯",
         parse_mode="Markdown"
     )
 
