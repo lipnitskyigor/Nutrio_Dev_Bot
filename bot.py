@@ -846,38 +846,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # ── Обработка состояния изменения таймзоны через /notify ──────
-    if context.user_data.get("setting_timezone"):
-        try:
-            parts = text.strip().replace(".", ":").split(":")
-            user_hour = int(parts[0])
-            if not (0 <= user_hour <= 23):
-                raise ValueError
-            from datetime import timezone as tz_mod
-            utc_hour = datetime.now(tz_mod.utc).hour
-            offset = user_hour - utc_hour
-            if offset > 12:
-                offset -= 24
-            elif offset < -12:
-                offset += 24
-            context.user_data.pop("setting_timezone", None)
-            notif = db.get_or_create_notifications(user_id)
-            db.save_notifications(user_id, notif["breakfast_enabled"],
-                                  notif["lunch_enabled"], notif["dinner_enabled"], offset)
-            sign = "+" if offset >= 0 else ""
-            notif = db.get_notifications(user_id)
-            await update.message.reply_text(
-                f"✅ Часовой пояс обновлён: UTC{sign}{offset}\n\n" + _notify_text(notif),
-                parse_mode="Markdown",
-                reply_markup=_notify_keyboard(notif)
-            )
-        except (ValueError, IndexError):
-            await update.message.reply_text(
-                "Не понял 🤔 Напиши время в формате *ЧЧ:ММ*, например: *23:15*",
-                parse_mode="Markdown"
-            )
-        return
-
     # ── Режим исправления — пользователь нажал "Исправить" ───────
     if "editing_meal_id" in context.user_data:
         meal_id = context.user_data.pop("editing_meal_id")
@@ -912,6 +880,38 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Error in editing flow: {e}")
             await msg.edit_text("😔 Не смог пересчитать. Попробуй описать подробнее!")
+        return
+
+    # ── Обработка состояния изменения таймзоны через /notify ──────
+    if context.user_data.get("setting_timezone"):
+        try:
+            parts = text.strip().replace(".", ":").split(":")
+            user_hour = int(parts[0])
+            if not (0 <= user_hour <= 23):
+                raise ValueError
+            from datetime import timezone as tz_mod
+            utc_hour = datetime.now(tz_mod.utc).hour
+            offset = user_hour - utc_hour
+            if offset > 12:
+                offset -= 24
+            elif offset < -12:
+                offset += 24
+            context.user_data.pop("setting_timezone", None)
+            notif = db.get_or_create_notifications(user_id)
+            db.save_notifications(user_id, notif["breakfast_enabled"],
+                                  notif["lunch_enabled"], notif["dinner_enabled"], offset)
+            sign = "+" if offset >= 0 else ""
+            notif = db.get_notifications(user_id)
+            await update.message.reply_text(
+                f"✅ Часовой пояс обновлён: UTC{sign}{offset}\n\n" + _notify_text(notif),
+                parse_mode="Markdown",
+                reply_markup=_notify_keyboard(notif)
+            )
+        except (ValueError, IndexError):
+            await update.message.reply_text(
+                "Не понял 🤔 Напиши время в формате *ЧЧ:ММ*, например: *23:15*",
+                parse_mode="Markdown"
+            )
         return
 
     # Обычный режим — распознавание еды
@@ -1417,10 +1417,9 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(
                     chat_id=user["user_id"],
                     text=(
-                        f"{emoji} Не забудь внести свой {name}!\n"
-                        f"Дневная цель: {goal_cal} ккал. За сегодня: {total_cal} ккал\n\n"
-                        f"📸 Отправь фото еды\n"
-                        f"✏️ или просто напиши текстом!"
+                        f"{emoji} Не забудь рассказать мне что съел на {name}!\n"
+                        f"Цель: {goal_cal} ккал. За сегодня: {total_cal} ккал\n\n"
+                        f"📸 Просто отправь фото или напиши текстом"
                     ),
                     reply_markup=InlineKeyboardMarkup([
                         [InlineKeyboardButton(f"🍽️ Добавить еду", callback_data="quick_add")],
