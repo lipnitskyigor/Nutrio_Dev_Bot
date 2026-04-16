@@ -261,10 +261,33 @@ def _main_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def _terms_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Принимаю условия", callback_data="accept_terms"),
+    ]])
+
+
+async def _send_terms(message, name: str):
+    await message.reply_text(
+        f"👋 Привет, {name}!\n\n"
+        "Прежде чем начать, прочитай важное:\n\n"
+        "⚠️ MealScan — помощник для подсчёта калорий и КБЖУ.\n"
+        "Это не медицинское приложение. Бот не заменяет врача,\n"
+        "диетолога или нутрициолога.\n\n"
+        "📄 Условия использования: mealscan.org/terms.html\n\n"
+        "Нажимая кнопку ниже, ты соглашаешься с условиями использования.",
+        reply_markup=_terms_keyboard(),
+    )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     name = user.first_name or "друг"
     user_id = user.id
+
+    if not db.get_terms_accepted(user_id):
+        await _send_terms(update.message, name)
+        return
 
     profile = db.get_profile(user_id)
     meals = db.get_meals_for_day(user_id, date.today().isoformat())
@@ -280,11 +303,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # New user — onboarding
         await update.message.reply_text(
-            f"Привет, {name}! 👋\n\n"
-            "Я считаю калории по фото еды — просто, быстро, без ручного ввода.\n\n"
+            f"Привет, {name}! 👋\n"
+            "Я помогаю следить за питанием — считаю калории и КБЖУ по фото или тексту.\n\n"
             "📸 *Отправь фото любого блюда*\n"
             "✏️ Или напиши что поел\n\n"
-            "Попробуй прямо сейчас ↓",
+            "Попробуй прямо сейчас ↓\n\n"
+            "———\n"
+            "ℹ️ Nutrio — помощник для контроля питания, не медицинское приложение. При наличии заболеваний или перед сменой рациона проконсультируйтесь с врачом или диетологом.",
             parse_mode="Markdown",
             reply_markup=_main_keyboard(),
         )
@@ -681,6 +706,9 @@ def _meal_summary(result: dict, total_cal: int, total_protein: int,
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    if not db.get_terms_accepted(user_id):
+        await _send_terms(update.message, update.effective_user.first_name or "друг")
+        return
     msg = await update.message.reply_text("🔍 Анализирую фото...")
 
     try:
@@ -732,6 +760,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.effective_user.id
+
+    if not db.get_terms_accepted(user_id):
+        await _send_terms(update.message, update.effective_user.first_name or "друг")
+        return
 
     # ── Меню-кнопки ───────────────────────────────────────────────
     if text == MENU_ADD:
@@ -1092,6 +1124,34 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     data = query.data
+
+    # ── Terms acceptance ──────────────────────────────────────────
+    if data == "accept_terms":
+        db.set_terms_accepted(user_id)
+        await query.message.delete()
+        name = query.from_user.first_name or "друг"
+        profile = db.get_profile(user_id)
+        meals = db.get_meals_for_day(user_id, date.today().isoformat())
+        if profile or meals:
+            await query.message.reply_text(
+                f"С возвращением, {name}! 👋\n\n"
+                "📸 Отправь фото еды или напиши что поел — посчитаю.",
+                parse_mode="Markdown",
+                reply_markup=_main_keyboard(),
+            )
+        else:
+            await query.message.reply_text(
+                f"Привет, {name}! 👋\n"
+                "Я помогаю следить за питанием — считаю калории и КБЖУ по фото или тексту.\n\n"
+                "📸 *Отправь фото любого блюда*\n"
+                "✏️ Или напиши что поел\n\n"
+                "Попробуй прямо сейчас ↓\n\n"
+                "———\n"
+                "ℹ️ Nutrio — помощник для контроля питания, не медицинское приложение. При наличии заболеваний или перед сменой рациона проконсультируйтесь с врачом или диетологом.",
+                parse_mode="Markdown",
+                reply_markup=_main_keyboard(),
+            )
+        return
 
     # ── Meal actions ──────────────────────────────────────────────
     if data.startswith("confirm_"):

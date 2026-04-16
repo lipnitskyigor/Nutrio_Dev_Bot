@@ -77,6 +77,13 @@ class Database:
                     timezone_offset INTEGER NOT NULL DEFAULT 3
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id INTEGER PRIMARY KEY,
+                    terms_accepted INTEGER NOT NULL DEFAULT 0,
+                    terms_accepted_at TIMESTAMP
+                )
+            """)
             conn.commit()
 
     def get_profile(self, user_id: int):
@@ -327,6 +334,25 @@ class Database:
                     dinner_enabled    = excluded.dinner_enabled,
                     timezone_offset   = excluded.timezone_offset
             """, (user_id, breakfast_enabled, lunch_enabled, dinner_enabled, timezone_offset))
+            conn.commit()
+
+    def get_terms_accepted(self, user_id: int) -> bool:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT terms_accepted FROM users WHERE user_id = ?", (user_id,)
+            )
+            row = cursor.fetchone()
+            return bool(row[0]) if row else False
+
+    def set_terms_accepted(self, user_id: int):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO users (user_id, terms_accepted, terms_accepted_at)
+                VALUES (?, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    terms_accepted = 1,
+                    terms_accepted_at = CURRENT_TIMESTAMP
+            """, (user_id,))
             conn.commit()
 
     def get_all_notification_users(self) -> List[Dict[str, Any]]:
