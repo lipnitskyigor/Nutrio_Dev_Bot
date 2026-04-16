@@ -334,6 +334,22 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_fat = sum(m["fat"] for m in meals)
     total_carbs = sum(m["carbs"] for m in meals)
 
+    goal = db.get_goal(user_id)
+    profile = db.get_profile(user_id)
+
+    if goal:
+        goal_cal = goal["calories"]
+        goal_protein = goal["protein"]
+    elif profile:
+        goal_cal = (profile["target_cal_low"] + profile["target_cal_high"]) // 2
+        goal_protein = round(profile["daily_calories"] * 0.25 / 4)
+    else:
+        goal_cal = 2000
+        goal_protein = 100
+
+    cal_left = goal_cal - total_cal
+    prot_left = max(0, goal_protein - total_protein)
+
     lines = [f"📊 *Итог за сегодня — {user_name}*\n"]
     for i, meal in enumerate(meals, 1):
         t = meal["time"]
@@ -341,6 +357,14 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines.append(f"\n🔥 *Итого: {total_cal} ккал*")
     lines.append(f"🥩 Белки: {total_protein} г  🧈 Жиры: {total_fat} г  🍞 Углеводы: {total_carbs} г")
+
+    if cal_left > 0:
+        lines.append(f"\n🎯 Осталось до цели: *{cal_left} ккал* и *{prot_left} г белка*")
+    elif cal_left > -200:
+        lines.append(f"\n✅ *Цель по калориям выполнена!*")
+    else:
+        lines.append(f"\n⚠️ Превышение цели на *{abs(cal_left)} ккал*")
+
     lines.append(f"\n✏️ Удалить: `/delete 2` | Изменить: `/edit 2 борщ 400г`")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
