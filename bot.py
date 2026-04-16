@@ -72,6 +72,44 @@ def analyze_food_text(text: str) -> dict:
     return json.loads(raw.strip())
 
 
+def analyze_food_correction(original_description: str, correction: str) -> dict:
+    """Re-analyze a meal with user's correction applied, keeping unchanged items intact."""
+    response = claude.messages.create(
+        model="claude-opus-4-5",
+        max_tokens=1024,
+        messages=[
+            {
+                "role": "user",
+                "content": f"""Ты эксперт по питанию. Пользователь ранее записал блюдо:
+"{original_description}"
+
+Теперь он хочет уточнить: "{correction}"
+
+Примени уточнение к блюду (измени только то, что пользователь упомянул, остальное оставь как есть) и пересчитай калорийность и КБЖУ для всего блюда целиком.
+
+Ответь СТРОГО в формате JSON (без markdown, без ```json, только чистый JSON):
+{{
+  "food_description": "полное описание блюда с учётом уточнения (на русском)",
+  "calories": число (ккал для всего блюда),
+  "protein": число (белки в граммах),
+  "fat": число (жиры в граммах),
+  "carbs": число (углеводы в граммах),
+  "comment": "короткий комментарий (на русском, 1-2 предложения)"
+}}
+
+Все числа — целые, без дробей."""
+            }
+        ],
+    )
+
+    raw = response.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    return json.loads(raw.strip())
+
+
 def analyze_food_image(image_bytes: bytes, caption: str = None) -> dict:
     """Send image to Claude and get calorie analysis."""
     image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
@@ -903,11 +941,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Режим исправления — пользователь нажал "Исправить" ───────
     if "editing_meal_id" in context.user_data:
         meal_id = context.user_data.pop("editing_meal_id")
-        msg = await update.message.reply_text(f"🔍 Пересчитываю «{text}»...")
+        msg = await update.message.reply_text(f"🔍 Пересчитываю...")
         try:
-            result = await asyncio.get_running_loop().run_in_executor(
-                None, analyze_food_text, text
-            )
+            original_meal = db.get_meal_by_id(meal_id, user_id)
+            if original_meal:
+                result = await asyncio.get_running_loop().run_in_executor(
+                    None, analyze_food_correction, original_meal["food_description"], text
+                )
+            else:
+                result = await asyncio.get_running_loop().run_in_executor(
+                    None, analyze_food_text, text
+                )
             if "error" in result:
                 await msg.edit_text(f"❌ {result['error']}")
                 return
@@ -1426,11 +1470,11 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     meal = meals[num - 1]
-    msg = await update.message.reply_text(f"🔍 Пересчитываю «{new_description}»...")
+    msg = await update.message.reply_text(f"🔍 Пересчитываю...")
 
     try:
         result = await asyncio.get_running_loop().run_in_executor(
-            None, analyze_food_text, new_description
+            None, analyze_food_correction, meal["food_description"], new_description
         )
 
         if "error" in result:

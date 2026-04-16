@@ -164,6 +164,16 @@ class Database:
             )
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_meal_by_id(self, meal_id: int, user_id: int):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM meals WHERE id = ? AND user_id = ?",
+                (meal_id, user_id),
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
     def delete_meal_by_id(self, meal_id: int, user_id: int):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
