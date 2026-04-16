@@ -1163,8 +1163,30 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         today = date.today().isoformat()
         meals = db.get_meals_for_day(user_id, today)
         total_cal = sum(m["calories"] for m in meals)
+        total_protein = sum(m["protein"] for m in meals)
+        goal = db.get_goal(user_id)
+        profile = db.get_profile(user_id)
+        if goal:
+            goal_cal = goal["calories"]
+            goal_protein = goal["protein"]
+        elif profile:
+            goal_cal = (profile["target_cal_low"] + profile["target_cal_high"]) // 2
+            goal_protein = round(profile["daily_calories"] * 0.25 / 4)
+        else:
+            goal_cal = 2000
+            goal_protein = 100
+        cal_left = goal_cal - total_cal
+        prot_left = max(0, goal_protein - total_protein)
+        if cal_left > 0:
+            remaining_line = f"🎯 Осталось до цели: *{cal_left} ккал* и *{prot_left} г белка*"
+        elif cal_left > -200:
+            remaining_line = "✅ Цель по калориям выполнена!"
+        else:
+            remaining_line = f"⚠️ Превышение цели на *{abs(cal_left)} ккал*"
         await query.edit_message_text(
-            f"🗑️ Запись удалена.\n\n📊 За сегодня осталось: *{total_cal} ккал* ({len(meals)} приёмов)",
+            f"🗑️ Запись удалена.\n\n"
+            f"📊 Съедено за сегодня: *{total_cal} ккал* / 🥩 *{total_protein} г белка* ({len(meals)} приёмов)\n"
+            f"{remaining_line}",
             parse_mode="Markdown"
         )
 
