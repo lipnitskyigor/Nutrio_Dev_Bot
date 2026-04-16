@@ -986,9 +986,10 @@ async def _finish_profile(message, user_id: int, context) -> None:
                    daily_calories=daily, target_cal_low=low, target_cal_high=high,
                    activity=activity)
     db.log_weight(user_id, weight)
-    # Синхронизируем goals таблицу чтобы /goal тоже знал норму
+    # Синхронизируем goals таблицу — используем середину целевого диапазона
     protein = round(daily * 0.25 / 4)  # ~25% калорий из белка
-    db.set_goal(user_id, daily, protein)
+    target_cal = (low + high) // 2
+    db.set_goal(user_id, target_cal, protein)
 
     for k in ("profile_step", "p_goal", "p_sex", "p_activity", "p_age", "p_height", "p_weight"):
         context.user_data.pop(k, None)
