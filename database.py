@@ -81,9 +81,21 @@ class Database:
                 CREATE TABLE IF NOT EXISTS users (
                     user_id INTEGER PRIMARY KEY,
                     terms_accepted INTEGER NOT NULL DEFAULT 0,
-                    terms_accepted_at TIMESTAMP
+                    terms_accepted_at TIMESTAMP,
+                    target_weight_warning_level TEXT,
+                    target_confirmed INTEGER DEFAULT 0,
+                    target_confirmed_at TIMESTAMP
                 )
             """)
+            for col_def in [
+                "ALTER TABLE users ADD COLUMN target_weight_warning_level TEXT",
+                "ALTER TABLE users ADD COLUMN target_confirmed INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN target_confirmed_at TIMESTAMP",
+            ]:
+                try:
+                    conn.execute(col_def)
+                except sqlite3.OperationalError:
+                    pass
             conn.commit()
 
     def get_profile(self, user_id: int):
@@ -344,6 +356,18 @@ class Database:
                     dinner_enabled    = excluded.dinner_enabled,
                     timezone_offset   = excluded.timezone_offset
             """, (user_id, breakfast_enabled, lunch_enabled, dinner_enabled, timezone_offset))
+            conn.commit()
+
+    def set_target_confirmation(self, user_id: int, warning_level: str):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO users (user_id, target_weight_warning_level, target_confirmed, target_confirmed_at)
+                VALUES (?, ?, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    target_weight_warning_level = excluded.target_weight_warning_level,
+                    target_confirmed = 1,
+                    target_confirmed_at = CURRENT_TIMESTAMP
+            """, (user_id, warning_level))
             conn.commit()
 
     def get_terms_accepted(self, user_id: int) -> bool:

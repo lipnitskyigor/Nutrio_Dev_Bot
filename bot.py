@@ -193,6 +193,21 @@ def _goal_label(goal: str) -> str:
     return {"lose": "похудеть", "maintain": "держать вес", "gain": "набрать массу"}.get(goal, goal)
 
 
+def _calc_bmi(weight: float, height: int) -> float:
+    return round(weight / (height / 100) ** 2, 1)
+
+
+def _calc_min_weight(height: int) -> float:
+    return round(18.5 * (height / 100) ** 2, 1)
+
+
+def _calc_weeks_to_goal(current: float, target: float, daily_deficit: int = 500) -> int:
+    diff = current - target
+    if diff <= 0:
+        return 0
+    return round(diff * 7700 / (daily_deficit * 7))
+
+
 # ── Notifications helpers ──────────────────────────────────────────
 
 sent_reminders: set = set()
@@ -642,28 +657,83 @@ async def target_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         target_w = float(context.args[0].replace(",", "."))
-        db.set_weight_goal(user_id, target_w)
-
-        latest = db.get_latest_weight(user_id)
-        response = f"✅ *Цель установлена:* {target_w} кг\n"
-        if latest:
-            diff = latest["weight"] - target_w
-            if diff > 0:
-                response += f"📍 Сейчас: {latest['weight']} кг — осталось *{diff:.1f} кг*\n"
-                response += "💪 Ты на правильном пути, продолжай!"
-            elif diff < 0:
-                response += f"🏆 Сейчас: {latest['weight']} кг — ты уже ниже цели!"
-            else:
-                response += "🎯 Ты уже на целевом весе!"
-        else:
-            response += "⚖️ Записывай вес командой `/weight 80` — буду следить за прогрессом!"
-
-        await update.message.reply_text(response, parse_mode="Markdown")
-
+        if not (30 <= target_w <= 300):
+            raise ValueError
     except ValueError:
         await update.message.reply_text(
             "❌ Неверный формат. Используй: `/target 75`",
             parse_mode="Markdown"
+        )
+        return
+
+    profile = db.get_profile(user_id)
+    if not profile or not all([profile.get('height'), profile.get('age'), profile.get('sex'), profile.get('activity')]):
+        await update.message.reply_text(
+            "📋 Для проверки безопасности цели нужен профиль (рост, возраст, пол, активность).\n\n"
+            "Настрой профиль — и я проверю, насколько цель безопасна.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("👉 Настроить профиль", callback_data="profile_yes")
+            ]])
+        )
+        return
+
+    height = profile['height']
+    bmi = _calc_bmi(target_w, height)
+    min_weight = _calc_min_weight(height)
+    latest = db.get_latest_weight(user_id)
+    current_weight = latest['weight'] if latest else profile['weight']
+    tdee, _, _ = _calc_calories(profile['sex'], profile['age'], height, current_weight,
+                                profile.get('goal', 'maintain'), profile.get('activity', 'moderate'))
+    min_cal = 1200 if profile['sex'] == 'female' else 1500
+    recommended_cal = max(tdee - 500, min_cal)
+    weeks = _calc_weeks_to_goal(current_weight, target_w)
+
+    if bmi >= 18.5:
+        db.set_weight_goal(user_id, target_w)
+        db.set_target_confirmation(user_id, 'safe')
+        text = f"✅ *Цель установлена: {target_w} кг*\n\n"
+        text += f"📊 Рекомендуемый калораж: *{recommended_cal} ккал/день*\n"
+        if tdee - 500 < min_cal:
+            text += f"⚠️ _Минимально безопасный калораж: {min_cal} ккал/день_\n"
+        if weeks > 0:
+            text += f"⏱ Примерный срок: *{weeks} недель*"
+        await update.message.reply_text(text, parse_mode="Markdown")
+
+    elif bmi >= 17:
+        await update.message.reply_text(
+            f"⚠️ Целевой вес *{target_w} кг* даёт ИМТ *{bmi}* — ниже нормы.\n"
+            f"Минимально рекомендуемый вес для твоего роста: *{min_weight} кг*.\n\n"
+            f"Проконсультируйся со специалистом перед началом.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Всё равно установить", callback_data=f"target_confirm_{target_w}"),
+                InlineKeyboardButton("✏️ Изменить цель", callback_data="target_change"),
+            ]])
+        )
+
+    elif bmi >= 16:
+        await update.message.reply_text(
+            f"🚨 Целевой вес *{target_w} кг* — это ИМТ *{bmi}*, опасно низкий показатель.\n"
+            f"Рекомендуемый минимум для роста {height} см: *{min_weight} кг*.\n\n"
+            f"Настоятельно рекомендуем проконсультироваться с врачом.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("⚠️ Установить (не рекомендуется)", callback_data=f"target_confirm_{target_w}"),
+                InlineKeyboardButton("✏️ Изменить цель", callback_data="target_change"),
+            ]])
+        )
+
+    else:
+        await update.message.reply_text(
+            f"❌ Установить цель *{target_w} кг* невозможно.\n"
+            f"Это ИМТ *{bmi}* — критически низкий показатель, опасный для жизни.\n\n"
+            f"Минимально допустимый вес для твоего роста: *{min_weight} кг*.\n"
+            f"Пожалуйста, обратись к врачу или диетологу.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("✏️ Изменить цель", callback_data="target_change"),
+            ]])
         )
 
 
@@ -1368,6 +1438,24 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Настроить: /notify",
                 parse_mode="Markdown"
             )
+
+    elif data.startswith("target_confirm_"):
+        target_w = float(data[len("target_confirm_"):])
+        db.set_weight_goal(user_id, target_w)
+        db.set_target_confirmation(user_id, 'confirmed_low_bmi')
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            f"✅ Целевой вес *{target_w} кг* установлен.\n\n"
+            f"⚠️ Помни о рекомендации проконсультироваться со специалистом.",
+            parse_mode="Markdown"
+        )
+
+    elif data == "target_change":
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            "Введи новый целевой вес: `/target 70`",
+            parse_mode="Markdown"
+        )
 
     elif data == "quick_add":
         await query.answer()
