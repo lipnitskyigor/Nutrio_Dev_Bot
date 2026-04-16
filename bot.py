@@ -1412,8 +1412,14 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
 
             meals = db.get_meals_for_day(user["user_id"], today)
             total_cal = sum(m["calories"] for m in meals)
+            goal = db.get_goal(user["user_id"])
             profile = db.get_profile(user["user_id"])
-            goal_cal = profile["daily_calories"] if profile else 2000
+            if goal:
+                goal_cal = goal["calories"]
+            elif profile:
+                goal_cal = (profile["target_cal_low"] + profile["target_cal_high"]) // 2
+            else:
+                goal_cal = 2000
 
             try:
                 await context.bot.send_message(
