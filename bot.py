@@ -390,8 +390,6 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         lines.append(f"\n⚠️ Превышение цели на *{abs(cal_left)} ккал*")
 
-    lines.append(f"\n✏️ Удалить: `/delete 2` | Изменить: `/edit 2 борщ 400г`")
-
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
