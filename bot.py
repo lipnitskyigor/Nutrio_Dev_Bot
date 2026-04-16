@@ -1126,26 +1126,33 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Terms acceptance ──────────────────────────────────────────
     if data == "accept_terms":
         db.set_terms_accepted(user_id)
-        await query.message.delete()
+        await query.edit_message_reply_markup(reply_markup=None)
         name = query.from_user.first_name or "друг"
         profile = db.get_profile(user_id)
         meals = db.get_meals_for_day(user_id, date.today().isoformat())
         if profile or meals:
-            await query.message.reply_text(
-                f"С возвращением, {name}! 👋\n\n"
-                "📸 Отправь фото еды или напиши что поел — посчитаю.",
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=(
+                    f"С возвращением, {name}! 👋\n\n"
+                    "📸 Отправь фото еды или напиши что поел — посчитаю."
+                ),
                 parse_mode="Markdown",
                 reply_markup=_main_keyboard(),
             )
         else:
-            await query.message.reply_text(
-                f"Привет, {name}! 👋\n"
-                "Я помогаю следить за питанием — считаю калории и КБЖУ по фото или тексту.\n\n"
-                "📸 *Отправь фото любого блюда*\n"
-                "✏️ Или напиши что поел\n\n"
-                "Попробуй прямо сейчас ↓\n\n"
-                "———\n"
-                "ℹ️ Nutrio — помощник для контроля питания, не медицинское приложение. При наличии заболеваний или перед сменой рациона проконсультируйтесь с врачом или диетологом.",
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=(
+                    f"Привет, {name}! 👋\n"
+                    "Я помогаю следить за питанием — считаю калории и КБЖУ по фото или тексту.\n\n"
+                    "📸 *Отправь фото любого блюда*\n"
+                    "✏️ Или напиши что поел\n\n"
+                    "Попробуй прямо сейчас ↓\n\n"
+                    "———\n"
+                    "ℹ️ Nutrio — помощник для контроля питания, не медицинское приложение. "
+                    "При наличии заболеваний или перед сменой рациона проконсультируйтесь с врачом или диетологом."
+                ),
                 parse_mode="Markdown",
                 reply_markup=_main_keyboard(),
             )
