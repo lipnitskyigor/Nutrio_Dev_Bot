@@ -389,6 +389,15 @@ class Database:
             """, (user_id,))
             conn.commit()
 
+    def save_notification_time(self, user_id: int, meal_type: str, time_str: str):
+        col = f"{meal_type}_time"
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                f"UPDATE notifications SET {col} = ? WHERE user_id = ?",
+                (time_str, user_id)
+            )
+            conn.commit()
+
     def get_all_notification_users(self) -> List[Dict[str, Any]]:
         """Возвращает всех пользователей с хотя бы одним активным напоминанием."""
         with sqlite3.connect(self.db_path) as conn:

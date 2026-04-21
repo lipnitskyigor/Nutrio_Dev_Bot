@@ -247,9 +247,18 @@ def _notify_keyboard(notif: dict) -> InlineKeyboardMarkup:
             InlineKeyboardButton("✅ Включить все", callback_data="notif_all_on"),
             InlineKeyboardButton("❌ Отключить все", callback_data="notif_all_off"),
         ],
-        [InlineKeyboardButton(b, callback_data="notif_toggle_breakfast")],
-        [InlineKeyboardButton(l, callback_data="notif_toggle_lunch")],
-        [InlineKeyboardButton(d, callback_data="notif_toggle_dinner")],
+        [
+            InlineKeyboardButton(b, callback_data="notif_toggle_breakfast"),
+            InlineKeyboardButton(f"🕐 {notif['breakfast_time']}", callback_data="notif_time_breakfast"),
+        ],
+        [
+            InlineKeyboardButton(l, callback_data="notif_toggle_lunch"),
+            InlineKeyboardButton(f"🕐 {notif['lunch_time']}", callback_data="notif_time_lunch"),
+        ],
+        [
+            InlineKeyboardButton(d, callback_data="notif_toggle_dinner"),
+            InlineKeyboardButton(f"🕐 {notif['dinner_time']}", callback_data="notif_time_dinner"),
+        ],
         [InlineKeyboardButton("🌍 Изменить часовой пояс", callback_data="notif_timezone")],
     ])
 
@@ -1131,6 +1140,34 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
+    # ── Режим изменения времени напоминания ──────────────────────
+    if context.user_data.get("setting_notification_time"):
+        meal_type = context.user_data.get("setting_notification_time")
+        import re
+        stripped = text.strip().replace(".", ":").replace("-", ":")
+        m = re.match(r'^(\d{1,2}):(\d{2})$', stripped)
+        if m:
+            h, mn = int(m.group(1)), int(m.group(2))
+            if 0 <= h <= 23 and 0 <= mn <= 59:
+                time_str = f"{h:02d}:{mn:02d}"
+                context.user_data.pop("setting_notification_time", None)
+                db.get_or_create_notifications(user_id)
+                db.save_notification_time(user_id, meal_type, time_str)
+                notif = db.get_notifications(user_id)
+                meal_names = {"breakfast": "завтрак", "lunch": "обед", "dinner": "ужин"}
+                await update.message.reply_text(
+                    f"✅ Время напоминания ({meal_names.get(meal_type, meal_type)}) обновлено: *{time_str}*\n\n"
+                    + _notify_text(notif),
+                    parse_mode="Markdown",
+                    reply_markup=_notify_keyboard(notif),
+                )
+                return
+        await update.message.reply_text(
+            "❌ Не понял время. Напиши в формате *ЧЧ:ММ*, например: *08:30*",
+            parse_mode="Markdown",
+        )
+        return
+
     # Обычный режим — распознавание еды
     if len(text) < 3:
         await update.message.reply_text(
@@ -1440,6 +1477,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=_notify_keyboard(notif)
         )
 
+    elif data.startswith("notif_time_"):
+        meal_type = data[len("notif_time_"):]  # breakfast / lunch / dinner
+        context.user_data["setting_notification_time"] = meal_type
+        meal_names = {"breakfast": "завтрак", "lunch": "обед", "dinner": "ужин"}
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            f"⏰ Напиши новое время для напоминания про *{meal_names.get(meal_type, meal_type)}*\n\n"
+            f"Формат: *ЧЧ:ММ*, например: *08:30*",
+            parse_mode="Markdown",
+        )
+
     elif data == "notif_timezone":
         context.user_data["setting_timezone"] = True
         await query.edit_message_reply_markup(reply_markup=None)
@@ -1662,6 +1710,17 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text("😔 Не смог пересчитать. Попробуй описать подробнее!")
 
 
+async def resetme_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    user_id = update.effective_user.id
+    with sqlite3.connect(DB_PATH) as conn:
+        for table in ("users", "profiles", "meals", "goals", "weight_log", "weight_goal", "notifications"):
+            conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+        conn.commit()
+    await update.message.reply_text("✅ Все данные сброшены. Напиши /start чтобы начать заново.")
+
+
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -1760,6 +1819,7 @@ def main():
     app.add_handler(CommandHandler("progress", progress_command))
     app.add_handler(CommandHandler("delete", delete_command))
     app.add_handler(CommandHandler("edit", edit_command))
+    app.add_handler(CommandHandler("resetme", resetme_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("notify", notify_command))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
