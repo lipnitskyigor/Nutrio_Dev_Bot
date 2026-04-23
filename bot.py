@@ -8,17 +8,18 @@ from datetime import datetime, date
 from io import BytesIO
 
 import anthropic
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
+    PreCheckoutQueryHandler,
     filters,
     ContextTypes,
 )
 
-from database import Database
+from database import Database, FREE_ANALYSES_LIMIT
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -29,6 +30,9 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 ADMIN_ID = 148160233
+
+PRICE_1M = 99    # Telegram Stars
+PRICE_3M = 249   # Telegram Stars
 
 DB_PATH = os.environ.get("DB_PATH", "/app/data/calories.db")
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -327,6 +331,34 @@ def _terms_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Принимаю условия", callback_data="accept_terms"),
     ]])
+
+
+def _subscribe_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(f"1 месяц — {PRICE_1M} ⭐", callback_data="sub_1m"),
+        InlineKeyboardButton(f"3 месяца — {PRICE_3M} ⭐", callback_data="sub_3m"),
+    ]])
+
+
+def _paywall_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("💳 Оформить подписку", callback_data="show_subscribe"),
+    ]])
+
+
+def _trial_notice(left: int) -> str:
+    if left == 0:
+        return (
+            "❌ *Бесплатные анализы закончились* (15 из 15)\n\n"
+            "Оформи подписку, чтобы продолжить считать калории 👇"
+        )
+    elif left == 1:
+        return f"⚠️ Остался *1 бесплатный анализ* из {FREE_ANALYSES_LIMIT} → /subscribe"
+    elif left <= 3:
+        return f"⚠️ Осталось *{left} бесплатных анализа* из {FREE_ANALYSES_LIMIT} → /subscribe"
+    elif left <= 5:
+        return f"🎁 Осталось {left} бесплатных анализов из {FREE_ANALYSES_LIMIT} → /subscribe"
+    return ""
 
 
 async def _send_terms(message, name: str):
@@ -824,6 +856,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db.get_terms_accepted(user_id):
         await _send_terms(update.message, update.effective_user.first_name or "друг")
         return
+    if not db.has_access(user_id):
+        await update.message.reply_text(
+            _trial_notice(0),
+            parse_mode="Markdown",
+            reply_markup=_paywall_keyboard(),
+        )
+        return
     msg = await update.message.reply_text("🔍 Анализирую фото...")
 
     try:
@@ -862,6 +901,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=_meal_keyboard(meal_id),
         )
+        if not db.is_paid_active(user_id):
+            db.use_free_analysis(user_id)
+            left = db.get_free_analyses_left(user_id)
+            notice = _trial_notice(left)
+            if notice:
+                await update.message.reply_text(
+                    notice,
+                    parse_mode="Markdown",
+                    reply_markup=_paywall_keyboard() if left == 0 else None,
+                )
         await _maybe_send_profile_prompt(update.message, user_id, context)
 
     except json.JSONDecodeError:
@@ -1177,6 +1226,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if not db.has_access(user_id):
+        await update.message.reply_text(
+            _trial_notice(0),
+            parse_mode="Markdown",
+            reply_markup=_paywall_keyboard(),
+        )
+        return
+
     msg = await update.message.reply_text("🔍 Считаю калории...")
 
     try:
@@ -1208,6 +1265,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=_meal_keyboard(meal_id),
         )
+        if not db.is_paid_active(user_id):
+            db.use_free_analysis(user_id)
+            left = db.get_free_analyses_left(user_id)
+            notice = _trial_notice(left)
+            if notice:
+                await update.message.reply_text(
+                    notice,
+                    parse_mode="Markdown",
+                    reply_markup=_paywall_keyboard() if left == 0 else None,
+                )
         await _maybe_send_profile_prompt(update.message, user_id, context)
 
     except json.JSONDecodeError:
@@ -1326,6 +1393,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Terms acceptance ──────────────────────────────────────────
     if data == "accept_terms":
         db.set_terms_accepted(user_id)
+        db.init_subscription(user_id)
         await query.edit_message_reply_markup(reply_markup=None)
         name = query.from_user.first_name or "друг"
         profile = db.get_profile(user_id)
@@ -1570,6 +1638,32 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
+    elif data == "show_subscribe":
+        left = db.get_free_analyses_left(user_id)
+        if left > 0:
+            trial_line = f"🎁 Бесплатных анализов осталось: *{left} из {FREE_ANALYSES_LIMIT}*\n\n"
+        else:
+            trial_line = "❌ Бесплатные анализы закончились\n\n"
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            f"{trial_line}💳 *Подписка Nutrio*\n\nВыбери тариф:",
+            parse_mode="Markdown",
+            reply_markup=_subscribe_keyboard(),
+        )
+
+    elif data in ("sub_1m", "sub_3m"):
+        months = 3 if data == "sub_3m" else 1
+        price = PRICE_3M if months == 3 else PRICE_1M
+        title = f"Подписка Nutrio — {'3 месяца' if months == 3 else '1 месяц'}"
+        await context.bot.send_invoice(
+            chat_id=query.message.chat_id,
+            title=title,
+            description="Неограниченный подсчёт калорий и КБЖУ по фото и тексту",
+            payload=data,
+            currency="XTR",
+            prices=[LabeledPrice(title, price)],
+        )
+
     elif data == "quick_add":
         await query.answer()
         await query.message.reply_text(
@@ -1726,16 +1820,20 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     with sqlite3.connect(DB_PATH) as conn:
-        users = conn.execute("SELECT COUNT(DISTINCT user_id) FROM meals").fetchone()[0]
         active_7d = conn.execute(
             "SELECT COUNT(DISTINCT user_id) FROM meals WHERE day >= date('now', '-7 days')"
         ).fetchone()[0]
         total_meals = conn.execute("SELECT COUNT(*) FROM meals").fetchone()[0]
 
+    stats = db.get_subscription_stats()
+
     await update.message.reply_text(
         f"📊 *Статистика Nutrio*\n\n"
-        f"👥 Всего пользователей: *{users}*\n"
+        f"👥 Всего пользователей: *{stats['total']}*\n"
         f"🔥 Активных за 7 дней: *{active_7d}*\n"
+        f"🎁 На пробном периоде: *{stats['on_trial']}*\n"
+        f"💳 Платных подписчиков: *{stats['paid']}*\n"
+        f"💤 Пробный истёк: *{stats['expired']}*\n\n"
         f"🍽️ Всего записей о еде: *{total_meals}*",
         parse_mode="Markdown"
     )
@@ -1748,6 +1846,52 @@ async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _notify_text(notif),
         parse_mode="Markdown",
         reply_markup=_notify_keyboard(notif),
+    )
+
+
+async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if db.is_paid_active(user_id):
+        sub = db.get_subscription(user_id)
+        expires = datetime.fromisoformat(sub["sub_expires_at"]).strftime("%-d %B %Y")
+        await update.message.reply_text(
+            f"✅ *Подписка активна до {expires}*\n\n"
+            "Можешь продлить заранее — срок добавится к текущему:",
+            parse_mode="Markdown",
+            reply_markup=_subscribe_keyboard(),
+        )
+    else:
+        left = db.get_free_analyses_left(user_id)
+        if left > 0:
+            trial_line = f"🎁 Бесплатных анализов осталось: *{left} из {FREE_ANALYSES_LIMIT}*\n\n"
+        else:
+            trial_line = "❌ Бесплатные анализы закончились\n\n"
+        await update.message.reply_text(
+            f"{trial_line}"
+            "💳 *Подписка Nutrio*\n\n"
+            "Неограниченный подсчёт калорий по фото и тексту\n\n"
+            "Выбери тариф:",
+            parse_mode="Markdown",
+            reply_markup=_subscribe_keyboard(),
+        )
+
+
+async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.pre_checkout_query.answer(ok=True)
+
+
+async def successful_payment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    payload = update.message.successful_payment.invoice_payload
+    months = 3 if payload == "sub_3m" else 1
+    db.activate_subscription(user_id, months)
+    label = "3 месяца" if months == 3 else "1 месяц"
+    await update.message.reply_text(
+        f"🎉 *Подписка активирована на {label}!*\n\n"
+        "Считай калории без ограничений 🍽️\n"
+        "Отправь фото или напиши что поел ↓",
+        parse_mode="Markdown",
+        reply_markup=_main_keyboard(),
     )
 
 
@@ -1822,6 +1966,9 @@ def main():
     app.add_handler(CommandHandler("resetme", resetme_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("notify", notify_command))
+    app.add_handler(CommandHandler("subscribe", subscribe_command))
+    app.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(callback_handler))

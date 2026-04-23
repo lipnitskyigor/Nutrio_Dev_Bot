@@ -1,5 +1,8 @@
 import sqlite3
+from datetime import datetime, timedelta
 from typing import List, Dict, Any
+
+FREE_ANALYSES_LIMIT = 15
 
 
 class Database:
@@ -85,6 +88,14 @@ class Database:
                     target_weight_warning_level TEXT,
                     target_confirmed INTEGER DEFAULT 0,
                     target_confirmed_at TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    user_id INTEGER PRIMARY KEY,
+                    free_analyses_used INTEGER NOT NULL DEFAULT 0,
+                    sub_expires_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             for col_def in [
@@ -397,6 +408,97 @@ class Database:
                 (time_str, user_id)
             )
             conn.commit()
+
+    # ── Subscriptions ─────────────────────────────────────────────
+
+    def get_subscription(self, user_id: int):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM subscriptions WHERE user_id = ?", (user_id,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def init_subscription(self, user_id: int):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO subscriptions (user_id) VALUES (?)",
+                (user_id,)
+            )
+            conn.commit()
+
+    def has_access(self, user_id: int) -> bool:
+        sub = self.get_subscription(user_id)
+        if not sub:
+            self.init_subscription(user_id)
+            return True
+        if sub["sub_expires_at"]:
+            if datetime.fromisoformat(sub["sub_expires_at"]) > datetime.now():
+                return True
+        return sub["free_analyses_used"] < FREE_ANALYSES_LIMIT
+
+    def is_paid_active(self, user_id: int) -> bool:
+        sub = self.get_subscription(user_id)
+        if not sub or not sub["sub_expires_at"]:
+            return False
+        return datetime.fromisoformat(sub["sub_expires_at"]) > datetime.now()
+
+    def use_free_analysis(self, user_id: int):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE subscriptions SET free_analyses_used = free_analyses_used + 1 WHERE user_id = ?",
+                (user_id,)
+            )
+            conn.commit()
+
+    def get_free_analyses_left(self, user_id: int) -> int:
+        sub = self.get_subscription(user_id)
+        if not sub:
+            return FREE_ANALYSES_LIMIT
+        return max(0, FREE_ANALYSES_LIMIT - sub["free_analyses_used"])
+
+    def activate_subscription(self, user_id: int, months: int):
+        sub = self.get_subscription(user_id)
+        if sub and sub["sub_expires_at"]:
+            try:
+                current = datetime.fromisoformat(sub["sub_expires_at"])
+                base = current if current > datetime.now() else datetime.now()
+            except (ValueError, TypeError):
+                base = datetime.now()
+        else:
+            base = datetime.now()
+        new_expiry = base + timedelta(days=30 * months)
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO subscriptions (user_id, sub_expires_at)
+                VALUES (?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET sub_expires_at = excluded.sub_expires_at
+            """, (user_id, new_expiry.isoformat()))
+            conn.commit()
+
+    def get_subscription_stats(self) -> dict:
+        now = datetime.now().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM subscriptions"
+            ).fetchone()[0]
+            paid = conn.execute(
+                "SELECT COUNT(*) FROM subscriptions WHERE sub_expires_at > ?", (now,)
+            ).fetchone()[0]
+            on_trial = conn.execute(
+                "SELECT COUNT(*) FROM subscriptions "
+                "WHERE (sub_expires_at IS NULL OR sub_expires_at <= ?) "
+                "AND free_analyses_used < ?",
+                (now, FREE_ANALYSES_LIMIT)
+            ).fetchone()[0]
+            expired = conn.execute(
+                "SELECT COUNT(*) FROM subscriptions "
+                "WHERE (sub_expires_at IS NULL OR sub_expires_at <= ?) "
+                "AND free_analyses_used >= ?",
+                (now, FREE_ANALYSES_LIMIT)
+            ).fetchone()[0]
+        return {"total": total, "paid": paid, "on_trial": on_trial, "expired": expired}
 
     def get_all_notification_users(self) -> List[Dict[str, Any]]:
         """Возвращает всех пользователей с хотя бы одним активным напоминанием."""
