@@ -358,7 +358,8 @@ def _trial_notice(left: int) -> str:
         return f"⚠️ Осталось *{left} бесплатных анализа* из {FREE_ANALYSES_LIMIT} → /subscribe"
     elif left <= 5:
         return f"🎁 Осталось {left} бесплатных анализов из {FREE_ANALYSES_LIMIT} → /subscribe"
-    return ""
+    else:
+        return f"🎁 Бесплатных анализов: {left} из {FREE_ANALYSES_LIMIT}"
 
 
 async def _send_terms(message, name: str):
