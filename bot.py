@@ -366,7 +366,7 @@ async def _send_terms(message, name: str):
     await message.reply_text(
         f"👋 Привет, {name}!\n\n"
         "Прежде чем начать, прочитай важное:\n\n"
-        "⚠️ MealScan — помощник для подсчёта калорий и КБЖУ.\n"
+        "⚠️ Meal Scan — помощник для подсчёта калорий и КБЖУ.\n"
         "Это не медицинское приложение. Бот не заменяет врача,\n"
         "диетолога или нутрициолога.\n\n"
         "📄 Условия использования: mealscan.org/terms.html\n\n"
@@ -398,13 +398,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # New user — onboarding
         await update.message.reply_text(
-            f"Привет, {name}! 👋\n"
             "Я помогаю следить за питанием — считаю калории и КБЖУ по фото или тексту.\n\n"
             "📸 *Отправь фото любого блюда*\n"
             "✏️ Или напиши что поел\n\n"
             "Попробуй прямо сейчас ↓\n\n"
             "———\n"
-            "ℹ️ Nutrio — помощник для контроля питания, не медицинское приложение. При наличии заболеваний или перед сменой рациона проконсультируйтесь с врачом или диетологом.",
+            "ℹ️ Meal Scan — помощник для контроля питания, не медицинское приложение. При наличии заболеваний или перед сменой рациона проконсультируйтесь с врачом или диетологом.",
             parse_mode="Markdown",
             reply_markup=_main_keyboard(),
         )
@@ -809,17 +808,17 @@ def _meal_summary(result: dict, total_cal: int, total_protein: int,
         norm = cal_low = cal_high = DEFAULT_CAL
         prot_target = DEFAULT_PROT
 
-    pct = round(cal / norm * 100)
+    day_pct = round(total_cal / norm * 100)
 
     text = (
         f"🍽️ *{result['food_description']}*\n\n"
-        f"🔥 *{cal} ккал* — ~{pct}% от нормы\n"
+        f"🔥 *{cal} ккал*\n"
         f"🥩 Белки: *{prot} г*\n"
         f"🧈 Жиры: {result['fat']} г\n"
         f"🍞 Углеводы: {result['carbs']} г\n\n"
         f"💬 _{result.get('comment', '')}_\n\n"
         f"📊 *За сегодня:*\n"
-        f"🔥 {total_cal} ккал  🥩 белок: *{total_protein} г*"
+        f"🔥 {total_cal} ккал (~{day_pct}% нормы)  🥩 белок: *{total_protein} г*"
     )
 
     if profile:
@@ -1413,13 +1412,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=(
-                    f"Привет, {name}! 👋\n"
                     "Я помогаю следить за питанием — считаю калории и КБЖУ по фото или тексту.\n\n"
                     "📸 *Отправь фото любого блюда*\n"
                     "✏️ Или напиши что поел\n\n"
                     "Попробуй прямо сейчас ↓\n\n"
                     "———\n"
-                    "ℹ️ Nutrio — помощник для контроля питания, не медицинское приложение. "
+                    "ℹ️ Meal Scan — помощник для контроля питания, не медицинское приложение. "
                     "При наличии заболеваний или перед сменой рациона проконсультируйтесь с врачом или диетологом."
                 ),
                 parse_mode="Markdown",
@@ -1900,6 +1898,11 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
     """Джоб запускается каждую минуту — рассылает напоминания о приёмах пищи."""
     from datetime import timezone, timedelta
 
+    # Чистим старые ключи (старше сегодня) чтобы set не рос бесконечно
+    cutoff = datetime.utcnow().strftime("%Y-%m-%d")
+    stale = {k for k in sent_reminders if k.split(":")[-1] < cutoff}
+    sent_reminders.difference_update(stale)
+
     users = db.get_all_notification_users()
     for user in users:
         tz_offset = user.get("timezone_offset", 3)
@@ -1920,20 +1923,19 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
             key = f"{user['user_id']}:{meal_type}:{today}"
             if key in sent_reminders:
                 continue
-            sent_reminders.add(key)
-
-            meals = db.get_meals_for_day(user["user_id"], today)
-            total_cal = sum(m["calories"] for m in meals)
-            goal = db.get_goal(user["user_id"])
-            profile = db.get_profile(user["user_id"])
-            if goal:
-                goal_cal = goal["calories"]
-            elif profile:
-                goal_cal = (profile["target_cal_low"] + profile["target_cal_high"]) // 2
-            else:
-                goal_cal = 2000
 
             try:
+                meals = db.get_meals_for_day(user["user_id"], today)
+                total_cal = sum(m["calories"] for m in meals)
+                goal = db.get_goal(user["user_id"])
+                profile = db.get_profile(user["user_id"])
+                if goal:
+                    goal_cal = goal["calories"]
+                elif profile:
+                    goal_cal = (profile["target_cal_low"] + profile["target_cal_high"]) // 2
+                else:
+                    goal_cal = 2000
+
                 await context.bot.send_message(
                     chat_id=user["user_id"],
                     text=(
@@ -1946,6 +1948,7 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
                         [InlineKeyboardButton(f"❌ Не напоминать про {name}", callback_data=f"notif_snooze_{meal_type}")],
                     ]),
                 )
+                sent_reminders.add(key)
             except Exception as e:
                 logger.error(f"Failed to send reminder to {user['user_id']}: {e}")
 
