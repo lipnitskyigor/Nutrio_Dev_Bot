@@ -1827,6 +1827,21 @@ async def resetme_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Все данные сброшены. Напиши /start чтобы начать заново.")
 
 
+async def gift_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    if not context.args:
+        await update.message.reply_text("Использование: /gift <user_id>")
+        return
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ user_id должен быть числом")
+        return
+    db.gift_access(target_id)
+    await update.message.reply_text(f"✅ Пользователю {target_id} выдан бессрочный доступ.")
+
+
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -2028,6 +2043,7 @@ def main():
     app.add_handler(CommandHandler("progress", progress_command))
     app.add_handler(CommandHandler("delete", delete_command))
     app.add_handler(CommandHandler("edit", edit_command))
+    app.add_handler(CommandHandler("gift", gift_command))
     app.add_handler(CommandHandler("resetme", resetme_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("notify", notify_command))

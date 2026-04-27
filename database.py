@@ -478,6 +478,18 @@ class Database:
                 """, (user_id, new_expiry))
             conn.commit()
 
+    def gift_access(self, user_id: int):
+        """Выдаёт пользователю бессрочный доступ (до 2099 года)."""
+        forever = datetime(2099, 1, 1)
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO subscriptions (user_id, sub_expires_at)
+                    VALUES (%s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET sub_expires_at = EXCLUDED.sub_expires_at
+                """, (user_id, forever))
+            conn.commit()
+
     def get_subscription_stats(self) -> dict:
         now = datetime.now()
         with self._conn() as conn:
