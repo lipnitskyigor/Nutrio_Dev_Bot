@@ -110,6 +110,7 @@ class Database:
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS target_weight_warning_level TEXT",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS target_confirmed INTEGER DEFAULT 0",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS target_confirmed_at TIMESTAMP",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS weight_tip_sent INTEGER NOT NULL DEFAULT 0",
                 ]:
                     cur.execute(col_def)
             conn.commit()
@@ -289,6 +290,31 @@ class Database:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM meals WHERE user_id = %s AND day = %s", (user_id, day))
+            conn.commit()
+
+    # ── Onboarding tips ───────────────────────────────────────────
+
+    def get_users_for_weight_tip(self) -> list:
+        """Пользователи, зарегистрированные 2+ дня назад, которым ещё не отправлен тип про вес."""
+        with self._conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT u.user_id, COALESCE(n.timezone_offset, 3) as timezone_offset
+                    FROM users u
+                    LEFT JOIN notifications n ON n.user_id = u.user_id
+                    WHERE u.terms_accepted = 1
+                      AND u.terms_accepted_at <= NOW() - INTERVAL '1 day'
+                      AND u.weight_tip_sent = 0
+                """)
+                return [dict(row) for row in cur.fetchall()]
+
+    def mark_weight_tip_sent(self, user_id: int):
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE users SET weight_tip_sent = 1 WHERE user_id = %s",
+                    (user_id,)
+                )
             conn.commit()
 
     # ── Notifications ─────────────────────────────────────────────

@@ -1956,6 +1956,32 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"Failed to send reminder to {user['user_id']}: {e}")
 
+    # Онбординг-подсказка про вес — на 2й день в 09:00
+    try:
+        tip_users = db.get_users_for_weight_tip()
+        for user in tip_users:
+            tz_offset = user.get("timezone_offset", 3)
+            tz = timezone(timedelta(hours=tz_offset))
+            now = datetime.now(tz)
+            if now.strftime("%H:%M") != "09:00":
+                continue
+            try:
+                await context.bot.send_message(
+                    chat_id=user["user_id"],
+                    text=(
+                        "⚖️ *Совет: следи за весом*\n\n"
+                        "Ты можешь записывать свой вес каждое утро — бот покажет динамику и прогресс к цели.\n\n"
+                        "Просто напиши команду /weight и введи текущий вес.\n"
+                        "График прогресса: /progress"
+                    ),
+                    parse_mode="Markdown",
+                )
+                db.mark_weight_tip_sent(user["user_id"])
+            except Exception as e:
+                logger.error(f"Failed to send weight tip to {user['user_id']}: {e}")
+    except Exception as e:
+        logger.error(f"Weight tip job error: {e}")
+
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
