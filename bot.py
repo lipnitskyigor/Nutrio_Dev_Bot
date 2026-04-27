@@ -1656,7 +1656,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             trial_line = "❌ Бесплатные анализы закончились\n\n"
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            f"{trial_line}💳 *Подписка Nutrio*\n\nВыбери тариф:",
+            f"{trial_line}💳 *Подписка Meal Scan*\n\nВыбери тариф:",
             parse_mode="Markdown",
             reply_markup=_subscribe_keyboard(),
         )
@@ -1664,7 +1664,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data in ("sub_1m", "sub_3m"):
         months = 3 if data == "sub_3m" else 1
         price = PRICE_3M if months == 3 else PRICE_1M
-        title = f"Подписка Nutrio — {'3 месяца' if months == 3 else '1 месяц'}"
+        title = f"Подписка Meal Scan — {'3 месяца' if months == 3 else '1 месяц'}"
         await context.bot.send_invoice(
             chat_id=query.message.chat_id,
             title=title,
@@ -1857,7 +1857,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats = db.get_subscription_stats()
 
     await update.message.reply_text(
-        f"📊 *Статистика Nutrio*\n\n"
+        f"📊 *Статистика Meal Scan*\n\n"
         f"👥 Всего пользователей: *{stats['total']}*\n"
         f"🔥 Активных за 7 дней: *{active_7d}*\n"
         f"🎁 На пробном периоде: *{stats['on_trial']}*\n"
@@ -1897,7 +1897,7 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             trial_line = "❌ Бесплатные анализы закончились\n\n"
         await update.message.reply_text(
             f"{trial_line}"
-            "💳 *Подписка Nutrio*\n\n"
+            "💳 *Подписка Meal Scan*\n\n"
             "Неограниченный подсчёт калорий по фото и тексту\n\n"
             "Выбери тариф:",
             parse_mode="Markdown",
