@@ -429,7 +429,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/progress — динамика веса за 7 дней с 🟢🔴 изменениями\n\n"
         "💡 Совет: чем чётче видна еда на фото, тем точнее результат!\n\n"
         "🔔 *Напоминания:*\n"
-        "/notify — настроить напоминания о приёмах пищи",
+        "/notify — настроить напоминания о приёмах пищи\n\n"
+        "💬 *Поддержка:*\n"
+        "/support — написать в поддержку",
+        parse_mode="Markdown"
+    )
+
+
+async def support_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "💬 *Поддержка Meal Scan*\n\n"
+        "Если у тебя вопрос или проблема — напиши нам:\n\n"
+        "👉 @MealScanSupport",
         parse_mode="Markdown"
     )
 
@@ -2001,6 +2012,7 @@ def main():
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("notify", notify_command))
     app.add_handler(CommandHandler("subscribe", subscribe_command))
+    app.add_handler(CommandHandler("support", support_command))
     app.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -2009,6 +2021,27 @@ def main():
 
     # Напоминания — проверка каждую минуту
     app.job_queue.run_repeating(send_reminders, interval=60, first=5)
+
+    # Регистрируем команды с иконками в меню Telegram
+    from telegram import BotCommand
+    commands = [
+        BotCommand("start",    "🏠 Главное меню"),
+        BotCommand("today",    "📊 Итог за сегодня"),
+        BotCommand("history",  "📅 История за 7 дней"),
+        BotCommand("goal",     "🎯 Дневная цель"),
+        BotCommand("weight",   "⚖️ Записать вес"),
+        BotCommand("target",   "🏁 Целевой вес"),
+        BotCommand("progress", "📈 Динамика веса"),
+        BotCommand("notify",   "🔔 Напоминания"),
+        BotCommand("subscribe","💳 Подписка"),
+        BotCommand("reset",    "🗑 Сбросить сегодня"),
+        BotCommand("delete",   "❌ Удалить запись"),
+        BotCommand("edit",     "✏️ Исправить запись"),
+        BotCommand("help",     "❓ Помощь"),
+        BotCommand("support",  "💬 Поддержка"),
+    ]
+    import asyncio
+    asyncio.get_event_loop().run_until_complete(app.bot.set_my_commands(commands))
 
     logger.info("Bot started!")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
