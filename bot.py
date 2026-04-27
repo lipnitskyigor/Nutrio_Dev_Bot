@@ -3,7 +3,6 @@ import json
 import base64
 import logging
 import asyncio
-import sqlite3
 from datetime import datetime, date
 from io import BytesIO
 
@@ -34,9 +33,10 @@ ADMIN_ID = 148160233
 PRICE_1M = 99    # Telegram Stars
 PRICE_3M = 249   # Telegram Stars
 
-DB_PATH = os.environ.get("DB_PATH", "/app/data/calories.db")
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-db = Database(DB_PATH)
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is not set")
+db = Database(DATABASE_URL)
 claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
@@ -1807,9 +1807,11 @@ async def resetme_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     user_id = update.effective_user.id
-    with sqlite3.connect(DB_PATH) as conn:
-        for table in ("users", "profiles", "meals", "goals", "weight_log", "weight_goal", "notifications"):
-            conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+    import psycopg2
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            for table in ("users", "profiles", "meals", "goals", "weight_log", "weight_goal", "notifications"):
+                cur.execute(f"DELETE FROM {table} WHERE user_id = %s", (user_id,))
         conn.commit()
     await update.message.reply_text("✅ Все данные сброшены. Напиши /start чтобы начать заново.")
 
@@ -1818,11 +1820,13 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
 
-    with sqlite3.connect(DB_PATH) as conn:
-        active_7d = conn.execute(
-            "SELECT COUNT(DISTINCT user_id) FROM meals WHERE day >= date('now', '-7 days')"
-        ).fetchone()[0]
-        total_meals = conn.execute("SELECT COUNT(*) FROM meals").fetchone()[0]
+    import psycopg2
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(DISTINCT user_id) FROM meals WHERE day >= (CURRENT_DATE - INTERVAL '7 days')::TEXT")
+            active_7d = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM meals")
+            total_meals = cur.fetchone()[0]
 
     stats = db.get_subscription_stats()
 
