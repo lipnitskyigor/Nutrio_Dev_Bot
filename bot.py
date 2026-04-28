@@ -1665,14 +1665,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         months = 3 if data == "sub_3m" else 1
         price = PRICE_3M if months == 3 else PRICE_1M
         title = f"Подписка Meal Scan — {'3 месяца' if months == 3 else '1 месяц'}"
-        await context.bot.send_invoice(
-            chat_id=query.message.chat_id,
-            title=title,
-            description="Неограниченный подсчёт калорий и КБЖУ по фото и тексту",
-            payload=data,
-            currency="XTR",
-            prices=[LabeledPrice(title, price)],
-        )
+        try:
+            await context.bot.send_invoice(
+                chat_id=query.message.chat_id,
+                title=title,
+                description="Неограниченный подсчёт калорий и КБЖУ по фото и тексту",
+                payload=data,
+                currency="XTR",
+                prices=[LabeledPrice(title, price)],
+            )
+        except Exception as e:
+            logger.error(f"send_invoice error: {e}")
+            await query.message.reply_text(f"❌ Ошибка при создании счёта: {e}")
 
     elif data == "quick_add":
         await query.answer()
