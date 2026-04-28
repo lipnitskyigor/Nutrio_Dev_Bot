@@ -1671,6 +1671,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 title=title,
                 description="Неограниченный подсчёт калорий и КБЖУ по фото и тексту",
                 payload=data,
+                provider_token="",
                 currency="XTR",
                 prices=[LabeledPrice(title, price)],
             )
