@@ -6,6 +6,10 @@ def detect_lang(language_code: str | None) -> str:
         return DEFAULT_LANG
     if language_code.startswith("ru"):
         return "ru"
+    if language_code.startswith("uk"):
+        return "uk"
+    if language_code.startswith("be"):
+        return "be"
     if language_code.startswith("de"):
         return "de"
     if language_code.startswith("pl"):

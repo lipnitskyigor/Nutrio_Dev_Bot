@@ -1363,6 +1363,10 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton(t(lang, "btn_lang_en"), callback_data="set_lang:en"),
             ],
             [
+                InlineKeyboardButton(t(lang, "btn_lang_uk"), callback_data="set_lang:uk"),
+                InlineKeyboardButton(t(lang, "btn_lang_be"), callback_data="set_lang:be"),
+            ],
+            [
                 InlineKeyboardButton(t(lang, "btn_lang_de"), callback_data="set_lang:de"),
                 InlineKeyboardButton(t(lang, "btn_lang_pl"), callback_data="set_lang:pl"),
             ],
@@ -1391,6 +1395,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         confirm_key = {
             "ru": "language_changed_ru",
             "en": "language_changed_en",
+            "uk": "language_changed_uk",
+            "be": "language_changed_be",
             "de": "language_changed_de",
             "pl": "language_changed_pl",
             "es": "language_changed_es",
@@ -1410,12 +1416,19 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton(t(lang, "btn_lang_en"), callback_data="set_lang:en"),
                 ],
                 [
+                    InlineKeyboardButton(t(lang, "btn_lang_uk"), callback_data="set_lang:uk"),
+                    InlineKeyboardButton(t(lang, "btn_lang_be"), callback_data="set_lang:be"),
+                ],
+                [
                     InlineKeyboardButton(t(lang, "btn_lang_de"), callback_data="set_lang:de"),
                     InlineKeyboardButton(t(lang, "btn_lang_pl"), callback_data="set_lang:pl"),
                 ],
                 [
                     InlineKeyboardButton(t(lang, "btn_lang_es"), callback_data="set_lang:es"),
                     InlineKeyboardButton(t(lang, "btn_lang_pt"), callback_data="set_lang:pt"),
+                ],
+                [
+                    InlineKeyboardButton(t(lang, "btn_lang_ar"), callback_data="set_lang:ar"),
                 ],
             ])
         )

@@ -12,8 +12,12 @@ texts = {
     "language_changed_en": "✅ Language changed to English 🇬🇧",
     "language_changed_de": "✅ Sprache auf Deutsch geändert 🇩🇪",
     "language_changed_pl": "✅ Język zmieniony na polski 🇵🇱",
+    "language_changed_uk": "✅ Мову змінено на українську 🇺🇦",
+    "language_changed_be": "✅ Мова зменена на беларускую 🇧🇾",
     "btn_lang_ru": "🇷🇺 Русский",
     "btn_lang_en": "🇬🇧 English",
+    "btn_lang_uk": "🇺🇦 Українська",
+    "btn_lang_be": "🇧🇾 Беларуская",
     "btn_lang_de": "🇩🇪 Deutsch",
     "btn_lang_pl": "🇵🇱 Polski",
 
