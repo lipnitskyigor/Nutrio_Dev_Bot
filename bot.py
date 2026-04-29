@@ -1404,6 +1404,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "ar": "language_changed_ar",
         }.get(chosen, "language_changed_en")
         await query.edit_message_text(t(chosen, confirm_key))
+        await query.message.reply_text(
+            t(chosen, "menu_add_prompt"),
+            reply_markup=_main_keyboard(chosen),
+        )
         return
 
     elif data == "open_language":
