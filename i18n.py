@@ -14,6 +14,8 @@ def detect_lang(language_code: str | None) -> str:
         return "es"
     if language_code.startswith("pt"):
         return "pt"
+    if language_code.startswith("ar"):
+        return "ar"
     return DEFAULT_LANG
 
 

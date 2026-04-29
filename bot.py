@@ -1370,6 +1370,9 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton(t(lang, "btn_lang_es"), callback_data="set_lang:es"),
                 InlineKeyboardButton(t(lang, "btn_lang_pt"), callback_data="set_lang:pt"),
             ],
+            [
+                InlineKeyboardButton(t(lang, "btn_lang_ar"), callback_data="set_lang:ar"),
+            ],
         ])
     )
 
@@ -1392,6 +1395,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "pl": "language_changed_pl",
             "es": "language_changed_es",
             "pt": "language_changed_pt",
+            "ar": "language_changed_ar",
         }.get(chosen, "language_changed_en")
         await query.edit_message_text(t(chosen, confirm_key))
         return
