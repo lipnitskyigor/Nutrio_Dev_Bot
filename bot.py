@@ -1433,8 +1433,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Terms acceptance ──────────────────────────────────────────
     if data == "accept_terms":
-        db.set_terms_accepted(user_id)
-        db.init_subscription(user_id)
+        try:
+            db.set_terms_accepted(user_id)
+            db.init_subscription(user_id)
+            logger.info(f"Terms accepted by {user_id}")
+        except Exception as e:
+            logger.error(f"Error accepting terms for {user_id}: {e}")
+            await query.message.reply_text(f"❌ Ошибка: {e}")
+            return
         await query.edit_message_reply_markup(reply_markup=None)
         name = query.from_user.first_name or "друг"
         profile = db.get_profile(user_id)
