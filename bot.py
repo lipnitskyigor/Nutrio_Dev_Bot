@@ -955,7 +955,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         profile = db.get_profile(user_id)
         if not profile:
             await update.message.reply_text(
-                "📋 Профиль не настроен.\n\nОтправь любое фото еды — и я предложу его настроить!",
+                "📋 *Профиль не настроен*\n\n"
+                "Заполни профиль — и я буду точнее считать твою норму калорий и прогресс.",
+                parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("👉 Настроить профиль", callback_data="profile_yes")
                 ]])
@@ -964,14 +966,42 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             goal_labels = {"lose": "Похудеть 🥦", "maintain": "Держать вес ⚖️", "gain": "Набрать массу 💪"}
             activity_labels = {"sedentary": "Сидячий 🪑", "light": "Лёгкая 🚶", "moderate": "Умеренная 🏃", "active": "Высокая 💪"}
             protein = round(profile['daily_calories'] * 0.25 / 4)
-            await update.message.reply_text(
+
+            latest_weight = db.get_latest_weight(user_id)
+            weight_goal = db.get_weight_goal(user_id)
+            today = date.today().isoformat()
+            meals = db.get_meals_for_day(user_id, today)
+            today_cal = sum(m["calories"] for m in meals)
+
+            text_lines = (
                 f"👤 *Твой профиль*\n\n"
                 f"🎯 Цель: {goal_labels.get(profile['goal'], profile['goal'])}\n"
                 f"⚡ Активность: {activity_labels.get(profile['activity'], profile['activity'])}\n"
                 f"📏 Рост: {profile['height']} см\n"
-                f"⚖️ Вес: {profile['weight']} кг\n\n"
-                f"🔥 Калории: *{profile['target_cal_low']}–{profile['target_cal_high']} ккал/день*\n"
-                f"🥩 Белок: *{protein} г/день*",
+                f"⚖️ Вес: {profile['weight']} кг\n"
+            )
+
+            if latest_weight:
+                current_w = latest_weight['weight']
+                text_lines += f"📅 Последний вес: *{current_w} кг* ({latest_weight['day']})\n"
+                if weight_goal:
+                    target_w = weight_goal['target_weight']
+                    diff = round(current_w - target_w, 1)
+                    if abs(diff) < 0.5:
+                        text_lines += f"🏁 Цель по весу: *{target_w} кг* — достигнута! 🎉\n"
+                    elif diff > 0:
+                        text_lines += f"🏁 До цели ({target_w} кг): *{diff} кг*\n"
+                    else:
+                        text_lines += f"🏁 До цели ({target_w} кг): *{abs(diff)} кг*\n"
+
+            text_lines += (
+                f"\n🔥 Норма: *{profile['target_cal_low']}–{profile['target_cal_high']} ккал/день*\n"
+                f"🥩 Белок: *{protein} г/день*\n"
+                f"📊 Съедено сегодня: *{today_cal} ккал*"
+            )
+
+            await update.message.reply_text(
+                text_lines,
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("✏️ Изменить профиль", callback_data="profile_yes")
