@@ -10,6 +10,10 @@ def detect_lang(language_code: str | None) -> str:
         return "de"
     if language_code.startswith("pl"):
         return "pl"
+    if language_code.startswith("es"):
+        return "es"
+    if language_code.startswith("pt"):
+        return "pt"
     return DEFAULT_LANG
 
 
