@@ -12,6 +12,11 @@ texts = {
     "language_changed_en": "✅ Language changed to English 🇬🇧",
     "btn_lang_ru": "🇷🇺 Русский",
     "btn_lang_en": "🇬🇧 English",
+    "btn_lang_de": "🇩🇪 Deutsch",
+    "btn_lang_pl": "🇵🇱 Polski",
+    "btn_lang_es": "🇪🇸 Español",
+    "btn_lang_pt": "🇧🇷 Português",
+    "btn_lang_ar": "🇸🇦 العربية",
 
     # ── Claude API instruction ────────────────────────────────────
     "claude_lang": "на русском",
