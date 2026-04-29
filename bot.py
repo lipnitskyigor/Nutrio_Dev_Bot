@@ -2031,23 +2031,270 @@ def main():
     from telegram import BotCommand
 
     async def post_init(application):
-        await application.bot.set_my_commands([
-            BotCommand("start",    "🏠 Главное меню"),
-            BotCommand("today",    "📊 Итог за сегодня"),
-            BotCommand("history",  "📅 История за 7 дней"),
-            BotCommand("goal",     "🎯 Дневная цель"),
-            BotCommand("weight",   "⚖️ Записать вес"),
-            BotCommand("target",   "🏁 Целевой вес"),
-            BotCommand("progress", "📈 Динамика веса"),
-            BotCommand("notify",   "🔔 Напоминания"),
-            BotCommand("subscribe","💳 Подписка"),
-            BotCommand("language", "🌍 Язык / Language"),
-            BotCommand("reset",    "🗑 Сбросить сегодня"),
-            BotCommand("delete",   "❌ Удалить запись"),
-            BotCommand("edit",     "✏️ Исправить запись"),
-            BotCommand("help",     "❓ Помощь"),
-            BotCommand("support",  "💬 Поддержка"),
-        ])
+        bot = application.bot
+
+        # ── 1. Команды по языкам ──────────────────────────────────────
+
+        commands_by_lang = {
+            "ru": [
+                BotCommand("start",     "🏠 Главное меню"),
+                BotCommand("today",     "📊 Итог за сегодня"),
+                BotCommand("history",   "📅 История за 7 дней"),
+                BotCommand("goal",      "🎯 Дневная цель"),
+                BotCommand("weight",    "⚖️ Записать вес"),
+                BotCommand("target",    "🏁 Целевой вес"),
+                BotCommand("progress",  "📈 Динамика веса"),
+                BotCommand("notify",    "🔔 Напоминания"),
+                BotCommand("language",  "🌍 Язык / Language"),
+                BotCommand("subscribe", "💳 Подписка"),
+                BotCommand("reset",     "🗑 Сбросить сегодня"),
+                BotCommand("delete",    "❌ Удалить запись"),
+                BotCommand("edit",      "✏️ Исправить запись"),
+                BotCommand("help",      "❓ Помощь"),
+                BotCommand("support",   "💬 Поддержка"),
+            ],
+            "en": [
+                BotCommand("start",     "🏠 Main menu"),
+                BotCommand("today",     "📊 Today's summary"),
+                BotCommand("history",   "📅 7-day history"),
+                BotCommand("goal",      "🎯 Daily goal"),
+                BotCommand("weight",    "⚖️ Log weight"),
+                BotCommand("target",    "🏁 Target weight"),
+                BotCommand("progress",  "📈 Weight progress"),
+                BotCommand("notify",    "🔔 Reminders"),
+                BotCommand("language",  "🌍 Language"),
+                BotCommand("subscribe", "💳 Subscription"),
+                BotCommand("reset",     "🗑 Reset today"),
+                BotCommand("delete",    "❌ Delete entry"),
+                BotCommand("edit",      "✏️ Edit entry"),
+                BotCommand("help",      "❓ Help"),
+                BotCommand("support",   "💬 Support"),
+            ],
+            "uk": [
+                BotCommand("start",     "🏠 Головне меню"),
+                BotCommand("today",     "📊 Підсумок за сьогодні"),
+                BotCommand("history",   "📅 Історія за 7 днів"),
+                BotCommand("goal",      "🎯 Денна ціль"),
+                BotCommand("weight",    "⚖️ Записати вагу"),
+                BotCommand("target",    "🏁 Цільова вага"),
+                BotCommand("progress",  "📈 Динаміка ваги"),
+                BotCommand("notify",    "🔔 Нагадування"),
+                BotCommand("language",  "🌍 Мова / Language"),
+                BotCommand("subscribe", "💳 Підписка"),
+                BotCommand("reset",     "🗑 Скинути сьогодні"),
+                BotCommand("delete",    "❌ Видалити запис"),
+                BotCommand("edit",      "✏️ Виправити запис"),
+                BotCommand("help",      "❓ Допомога"),
+                BotCommand("support",   "💬 Підтримка"),
+            ],
+            "be": [
+                BotCommand("start",     "🏠 Галоўнае меню"),
+                BotCommand("today",     "📊 Вынік за сёння"),
+                BotCommand("history",   "📅 Гісторыя за 7 дзён"),
+                BotCommand("goal",      "🎯 Дзённая мэта"),
+                BotCommand("weight",    "⚖️ Запісаць вагу"),
+                BotCommand("target",    "🏁 Мэтавая вага"),
+                BotCommand("progress",  "📈 Дынаміка вагі"),
+                BotCommand("notify",    "🔔 Напаміны"),
+                BotCommand("language",  "🌍 Мова / Language"),
+                BotCommand("subscribe", "💳 Падпіска"),
+                BotCommand("reset",     "🗑 Скінуць сёння"),
+                BotCommand("delete",    "❌ Выдаліць запіс"),
+                BotCommand("edit",      "✏️ Выправіць запіс"),
+                BotCommand("help",      "❓ Дапамога"),
+                BotCommand("support",   "💬 Падтрымка"),
+            ],
+            "de": [
+                BotCommand("start",     "🏠 Hauptmenü"),
+                BotCommand("today",     "📊 Heutige Zusammenfassung"),
+                BotCommand("history",   "📅 7-Tage-Verlauf"),
+                BotCommand("goal",      "🎯 Tagesziel"),
+                BotCommand("weight",    "⚖️ Gewicht erfassen"),
+                BotCommand("target",    "🏁 Zielgewicht"),
+                BotCommand("progress",  "📈 Gewichtsverlauf"),
+                BotCommand("notify",    "🔔 Erinnerungen"),
+                BotCommand("language",  "🌍 Sprache / Language"),
+                BotCommand("subscribe", "💳 Abonnement"),
+                BotCommand("reset",     "🗑 Heute zurücksetzen"),
+                BotCommand("delete",    "❌ Eintrag löschen"),
+                BotCommand("edit",      "✏️ Eintrag bearbeiten"),
+                BotCommand("help",      "❓ Hilfe"),
+                BotCommand("support",   "💬 Support"),
+            ],
+            "pl": [
+                BotCommand("start",     "🏠 Menu główne"),
+                BotCommand("today",     "📊 Podsumowanie dnia"),
+                BotCommand("history",   "📅 Historia 7 dni"),
+                BotCommand("goal",      "🎯 Dzienny cel"),
+                BotCommand("weight",    "⚖️ Zapisz wagę"),
+                BotCommand("target",    "🏁 Waga docelowa"),
+                BotCommand("progress",  "📈 Postęp wagi"),
+                BotCommand("notify",    "🔔 Przypomnienia"),
+                BotCommand("language",  "🌍 Język / Language"),
+                BotCommand("subscribe", "💳 Subskrypcja"),
+                BotCommand("reset",     "🗑 Resetuj dziś"),
+                BotCommand("delete",    "❌ Usuń wpis"),
+                BotCommand("edit",      "✏️ Edytuj wpis"),
+                BotCommand("help",      "❓ Pomoc"),
+                BotCommand("support",   "💬 Wsparcie"),
+            ],
+            "es": [
+                BotCommand("start",     "🏠 Menú principal"),
+                BotCommand("today",     "📊 Resumen de hoy"),
+                BotCommand("history",   "📅 Historial 7 días"),
+                BotCommand("goal",      "🎯 Objetivo diario"),
+                BotCommand("weight",    "⚖️ Registrar peso"),
+                BotCommand("target",    "🏁 Peso objetivo"),
+                BotCommand("progress",  "📈 Progreso de peso"),
+                BotCommand("notify",    "🔔 Recordatorios"),
+                BotCommand("language",  "🌍 Idioma / Language"),
+                BotCommand("subscribe", "💳 Suscripción"),
+                BotCommand("reset",     "🗑 Reiniciar hoy"),
+                BotCommand("delete",    "❌ Eliminar entrada"),
+                BotCommand("edit",      "✏️ Editar entrada"),
+                BotCommand("help",      "❓ Ayuda"),
+                BotCommand("support",   "💬 Soporte"),
+            ],
+            "pt": [
+                BotCommand("start",     "🏠 Menu principal"),
+                BotCommand("today",     "📊 Resumo de hoje"),
+                BotCommand("history",   "📅 Histórico 7 dias"),
+                BotCommand("goal",      "🎯 Meta diária"),
+                BotCommand("weight",    "⚖️ Registrar peso"),
+                BotCommand("target",    "🏁 Peso alvo"),
+                BotCommand("progress",  "📈 Progresso de peso"),
+                BotCommand("notify",    "🔔 Lembretes"),
+                BotCommand("language",  "🌍 Idioma / Language"),
+                BotCommand("subscribe", "💳 Assinatura"),
+                BotCommand("reset",     "🗑 Resetar hoje"),
+                BotCommand("delete",    "❌ Excluir entrada"),
+                BotCommand("edit",      "✏️ Editar entrada"),
+                BotCommand("help",      "❓ Ajuda"),
+                BotCommand("support",   "💬 Suporte"),
+            ],
+            "ar": [
+                BotCommand("start",     "🏠 القائمة الرئيسية"),
+                BotCommand("today",     "📊 ملخص اليوم"),
+                BotCommand("history",   "📅 سجل 7 أيام"),
+                BotCommand("goal",      "🎯 الهدف اليومي"),
+                BotCommand("weight",    "⚖️ تسجيل الوزن"),
+                BotCommand("target",    "🏁 الوزن المستهدف"),
+                BotCommand("progress",  "📈 تقدم الوزن"),
+                BotCommand("notify",    "🔔 التذكيرات"),
+                BotCommand("language",  "🌍 اللغة / Language"),
+                BotCommand("subscribe", "💳 الاشتراك"),
+                BotCommand("reset",     "🗑 إعادة تعيين اليوم"),
+                BotCommand("delete",    "❌ حذف إدخال"),
+                BotCommand("edit",      "✏️ تعديل إدخال"),
+                BotCommand("help",      "❓ المساعدة"),
+                BotCommand("support",   "💬 الدعم"),
+            ],
+        }
+
+        for lang_code, commands in commands_by_lang.items():
+            await bot.set_my_commands(commands, language_code=lang_code)
+
+        await bot.set_my_commands(commands_by_lang["en"])
+
+        # ── 2. Короткое описание (about, до 120 символов) ─────────────
+
+        short_descriptions = {
+            "ru": "AI-сканер КБЖУ + дневник питания и веса 🍎",
+            "en": "AI calorie scanner + nutrition & weight diary 🍎",
+            "uk": "AI-сканер КБЖУ + щоденник харчування і ваги 🍎",
+            "be": "AI-сканер БЖВ + дзённік харчавання і вагі 🍎",
+            "de": "KI-Kalorien-Scanner + Ernährungs- & Gewichtstagebuch 🍎",
+            "pl": "Skaner kalorii AI + dziennik żywienia i wagi 🍎",
+            "es": "Escáner de calorías IA + diario de nutrición y peso 🍎",
+            "pt": "Scanner de calorias IA + diário de nutrição e peso 🍎",
+            "ar": "ماسح سعرات AI + يوميات التغذية والوزن 🍎",
+        }
+
+        # ── 3. Полное описание (до /start, до 512 символов) ───────────
+
+        full_descriptions = {
+            "ru": (
+                "Отправь фото еды — получи калории и КБЖУ за секунды.\n\n"
+                "📸 Анализ по фото и тексту\n"
+                "📔 Дневник питания с историей\n"
+                "⚖️ Трекер веса и прогресса\n"
+                "🔔 Напоминания о приёмах пищи\n"
+                "🎯 Персональные цели по калориям"
+            ),
+            "en": (
+                "Send a food photo — get calories and macros in seconds.\n\n"
+                "📸 Analysis from photo and text\n"
+                "📔 Nutrition diary with history\n"
+                "⚖️ Weight and progress tracker\n"
+                "🔔 Meal reminders\n"
+                "🎯 Personal calorie goals"
+            ),
+            "uk": (
+                "Надішли фото їжі — отримай калорії та КБЖБ за секунди.\n\n"
+                "📸 Аналіз за фото і текстом\n"
+                "📔 Щоденник харчування з історією\n"
+                "⚖️ Трекер ваги і прогресу\n"
+                "🔔 Нагадування про прийоми їжі\n"
+                "🎯 Персональні цілі за калоріями"
+            ),
+            "be": (
+                "Дашлі фота ежы — атрымай калорыі і БЖВ за секунды.\n\n"
+                "📸 Аналіз па фота і тэксце\n"
+                "📔 Дзённік харчавання з гісторыяй\n"
+                "⚖️ Трэкер вагі і прагрэсу\n"
+                "🔔 Напаміны аб прыёмах ежы\n"
+                "🎯 Персанальныя мэты па калорыях"
+            ),
+            "de": (
+                "Sende ein Foto — erhalte Kalorien und Makros in Sekunden.\n\n"
+                "📸 Analyse per Foto und Text\n"
+                "📔 Ernährungstagebuch mit Verlauf\n"
+                "⚖️ Gewichts- und Fortschritts-Tracker\n"
+                "🔔 Mahlzeit-Erinnerungen\n"
+                "🎯 Persönliche Kalorienziele"
+            ),
+            "pl": (
+                "Wyślij zdjęcie jedzenia — otrzymaj kalorie i makro w sekundy.\n\n"
+                "📸 Analiza ze zdjęcia i tekstu\n"
+                "📔 Dziennik żywienia z historią\n"
+                "⚖️ Tracker wagi i postępu\n"
+                "🔔 Przypomnienia o posiłkach\n"
+                "🎯 Osobiste cele kaloryczne"
+            ),
+            "es": (
+                "Envía una foto — obtén calorías y macros en segundos.\n\n"
+                "📸 Análisis por foto y texto\n"
+                "📔 Diario nutricional con historial\n"
+                "⚖️ Tracker de peso y progreso\n"
+                "🔔 Recordatorios de comidas\n"
+                "🎯 Objetivos calóricos personales"
+            ),
+            "pt": (
+                "Envie uma foto — obtenha calorias e macros em segundos.\n\n"
+                "📸 Análise por foto e texto\n"
+                "📔 Diário nutricional com histórico\n"
+                "⚖️ Tracker de peso e progresso\n"
+                "🔔 Lembretes de refeições\n"
+                "🎯 Metas calóricas pessoais"
+            ),
+            "ar": (
+                "أرسل صورة طعام — احصل على السعرات والمغذيات في ثوانٍ.\n\n"
+                "📸 تحليل من الصور والنص\n"
+                "📔 يوميات التغذية مع السجل\n"
+                "⚖️ متتبع الوزن والتقدم\n"
+                "🔔 تذكيرات الوجبات\n"
+                "🎯 أهداف السعرات الشخصية"
+            ),
+        }
+
+        for lang_code, text in short_descriptions.items():
+            await bot.set_my_short_description(text, language_code=lang_code)
+
+        for lang_code, text in full_descriptions.items():
+            await bot.set_my_description(text, language_code=lang_code)
+
+        await bot.set_my_short_description(short_descriptions["en"])
+        await bot.set_my_description(full_descriptions["en"])
 
     app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
 
