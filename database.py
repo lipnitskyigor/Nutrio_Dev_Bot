@@ -111,6 +111,7 @@ class Database:
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS target_confirmed INTEGER DEFAULT 0",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS target_confirmed_at TIMESTAMP",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS weight_tip_sent INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'auto'",
                 ]:
                     cur.execute(col_def)
             conn.commit()
@@ -513,6 +514,19 @@ class Database:
                 )
                 expired = cur.fetchone()[0]
         return {"total": total, "paid": paid, "on_trial": on_trial, "expired": expired}
+
+    def get_user_language(self, user_id: int) -> str:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT language FROM users WHERE user_id = %s", (user_id,))
+                row = cur.fetchone()
+                return row[0] if row and row[0] else "auto"
+
+    def set_user_language(self, user_id: int, lang: str):
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET language = %s WHERE user_id = %s", (lang, user_id))
+            conn.commit()
 
     def get_all_notification_users(self) -> List[Dict[str, Any]]:
         with self._conn() as conn:

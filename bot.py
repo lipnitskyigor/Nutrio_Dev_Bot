@@ -19,6 +19,7 @@ from telegram.ext import (
 )
 
 from database import Database, FREE_ANALYSES_LIMIT
+from i18n import t, detect_lang
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -40,30 +41,43 @@ db = Database(DATABASE_URL)
 claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
-def analyze_food_text(text: str) -> dict:
+def _lang(user_id: int, tg_lang_code: str | None) -> str:
+    saved = db.get_user_language(user_id)
+    if saved != "auto":
+        return saved
+    return detect_lang(tg_lang_code)
+
+
+def _is_menu(text: str, key: str) -> bool:
+    from locales import SUPPORTED
+    return any(v.get(key) == text for v in SUPPORTED.values())
+
+
+def analyze_food_text(text: str, lang: str = "ru") -> dict:
     """Send food description to Claude and get calorie analysis."""
+    claude_lang = t(lang, "claude_lang")
     response = claude.messages.create(
         model="claude-opus-4-5",
         max_tokens=1024,
         messages=[
             {
                 "role": "user",
-                "content": f"""Ты эксперт по питанию. Пользователь описал что поел: "{text}"
+                "content": f"""You are a nutrition expert. The user described what they ate: "{text}"
 
-Рассчитай примерную калорийность и КБЖУ.
+Calculate the approximate calorie content and macros (KBJU).
 
-Ответь СТРОГО в формате JSON (без markdown, без ```json, только чистый JSON):
+Reply STRICTLY in JSON format (no markdown, no ```json, just plain JSON):
 {{
-  "food_description": "что именно съел (понятное описание на русском)",
-  "calories": число (примерное количество ккал),
-  "protein": число (белки в граммах),
-  "fat": число (жиры в граммах),
-  "carbs": число (углеводы в граммах),
-  "comment": "короткий комментарий (на русском, 1-2 предложения)"
+  "food_description": "what exactly was eaten (clear description {claude_lang})",
+  "calories": number (approximate kcal),
+  "protein": number (protein in grams),
+  "fat": number (fat in grams),
+  "carbs": number (carbs in grams),
+  "comment": "short comment ({claude_lang}, 1-2 sentences)"
 }}
 
-Если текст не про еду, верни: {{"error": "Не понял что это за еда. Опиши подробнее или пришли фото!"}}
-Все числа — целые, без дробей."""
+If the text is not about food, return: {{"error": "Not sure what food this is. Please describe in more detail or send a photo!"}}
+All numbers must be integers, no fractions."""
             }
         ],
     )
@@ -76,32 +90,33 @@ def analyze_food_text(text: str) -> dict:
     return json.loads(raw.strip())
 
 
-def analyze_food_correction(original_description: str, correction: str) -> dict:
+def analyze_food_correction(original_description: str, correction: str, lang: str = "ru") -> dict:
     """Re-analyze a meal with user's correction applied, keeping unchanged items intact."""
+    claude_lang = t(lang, "claude_lang")
     response = claude.messages.create(
         model="claude-opus-4-5",
         max_tokens=1024,
         messages=[
             {
                 "role": "user",
-                "content": f"""Ты эксперт по питанию. Пользователь ранее записал блюдо:
+                "content": f"""You are a nutrition expert. The user previously logged a dish:
 "{original_description}"
 
-Теперь он хочет уточнить: "{correction}"
+Now they want to clarify: "{correction}"
 
-Примени уточнение к блюду (измени только то, что пользователь упомянул, остальное оставь как есть) и пересчитай калорийность и КБЖУ для всего блюда целиком.
+Apply the clarification to the dish (change only what the user mentioned, keep the rest as is) and recalculate the calorie content and macros for the whole dish.
 
-Ответь СТРОГО в формате JSON (без markdown, без ```json, только чистый JSON):
+Reply STRICTLY in JSON format (no markdown, no ```json, just plain JSON):
 {{
-  "food_description": "полное описание блюда с учётом уточнения (на русском)",
-  "calories": число (ккал для всего блюда),
-  "protein": число (белки в граммах),
-  "fat": число (жиры в граммах),
-  "carbs": число (углеводы в граммах),
-  "comment": "короткий комментарий (на русском, 1-2 предложения)"
+  "food_description": "full description of the dish including the clarification ({claude_lang})",
+  "calories": number (kcal for the whole dish),
+  "protein": number (protein in grams),
+  "fat": number (fat in grams),
+  "carbs": number (carbs in grams),
+  "comment": "short comment ({claude_lang}, 1-2 sentences)"
 }}
 
-Все числа — целые, без дробей."""
+All numbers must be integers, no fractions."""
             }
         ],
     )
@@ -114,11 +129,12 @@ def analyze_food_correction(original_description: str, correction: str) -> dict:
     return json.loads(raw.strip())
 
 
-def analyze_food_image(image_bytes: bytes, caption: str = None) -> dict:
+def analyze_food_image(image_bytes: bytes, caption: str = None, lang: str = "ru") -> dict:
     """Send image to Claude and get calorie analysis."""
     image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+    claude_lang = t(lang, "claude_lang")
 
-    caption_hint = f'\nПользователь также написал: "{caption}"' if caption else ""
+    caption_hint = f'\nThe user also wrote: "{caption}"' if caption else ""
 
     response = claude.messages.create(
         model="claude-opus-4-5",
@@ -137,20 +153,20 @@ def analyze_food_image(image_bytes: bytes, caption: str = None) -> dict:
                     },
                     {
                         "type": "text",
-                        "text": f"""Ты эксперт по питанию. Проанализируй еду на фото и дай оценку калорийности.{caption_hint}
+                        "text": f"""You are a nutrition expert. Analyze the food in the photo and estimate the calorie content.{caption_hint}
 
-Ответь СТРОГО в формате JSON (без markdown, без ```json, только чистый JSON):
+Reply STRICTLY in JSON format (no markdown, no ```json, just plain JSON):
 {{
-  "food_description": "что именно на фото (на русском)",
-  "calories": число (примерное количество ккал),
-  "protein": число (белки в граммах),
-  "fat": число (жиры в граммах),
-  "carbs": число (углеводы в граммах),
-  "comment": "короткий комментарий о блюде (на русском, 1-2 предложения)"
+  "food_description": "what is in the photo ({claude_lang})",
+  "calories": number (approximate kcal),
+  "protein": number (protein in grams),
+  "fat": number (fat in grams),
+  "carbs": number (carbs in grams),
+  "comment": "short comment about the dish ({claude_lang}, 1-2 sentences)"
 }}
 
-Если на фото нет еды, верни: {{"error": "На фото нет еды"}}
-Все числа — целые, без дробей."""
+If there is no food in the photo, return: {{"error": "No food in the photo"}}
+All numbers must be integers, no fractions."""
                     }
                 ],
             }
@@ -193,8 +209,8 @@ def _calc_calories(sex: str, age: int, height: int, weight: float, goal: str, ac
     return int(daily), int(low), int(high)
 
 
-def _goal_label(goal: str) -> str:
-    return {"lose": "похудеть", "maintain": "держать вес", "gain": "набрать массу"}.get(goal, goal)
+def _goal_label(goal: str, lang: str) -> str:
+    return t(lang, f"goal_label_{goal}")
 
 
 def _calc_bmi(weight: float, height: int) -> float:
@@ -227,109 +243,100 @@ def _local_time(offset: int) -> str:
     return datetime.now(tz).strftime("%H:%M")
 
 
-def _notify_text(notif: dict) -> str:
+def _notify_text(notif: dict, lang: str = "ru") -> str:
     tz = notif["timezone_offset"]
-    b = "✅" if notif["breakfast_enabled"] else "❌"
-    l = "✅" if notif["lunch_enabled"] else "❌"
-    d = "✅" if notif["dinner_enabled"] else "❌"
-    return (
-        f"⏰ *Настройка напоминаний*\n\n"
-        f"🌍 Часовой пояс: {_tz_str(tz)} (сейчас {_local_time(tz)})\n\n"
-        f"☕ Завтрак — {notif['breakfast_time']} ({b})\n"
-        f"🍲 Обед — {notif['lunch_time']} ({l})\n"
-        f"🍽️ Ужин — {notif['dinner_time']} ({d})\n\n"
-        f"⚠️ Рекомендуем держать минимум 1 напоминание включённым"
-    )
+    b = t(lang, "notif_enabled") if notif["breakfast_enabled"] else t(lang, "notif_disabled")
+    l = t(lang, "notif_enabled") if notif["lunch_enabled"] else t(lang, "notif_disabled")
+    d = t(lang, "notif_enabled") if notif["dinner_enabled"] else t(lang, "notif_disabled")
+    return t(lang, "notify_header",
+             tz=_tz_str(tz), time=_local_time(tz),
+             b_time=notif["breakfast_time"], b=b,
+             l_time=notif["lunch_time"], l=l,
+             d_time=notif["dinner_time"], d=d)
 
 
-def _notify_keyboard(notif: dict) -> InlineKeyboardMarkup:
-    b = f"☕ Завтрак {'✅' if notif['breakfast_enabled'] else '❌'}"
-    l = f"🍲 Обед {'✅' if notif['lunch_enabled'] else '❌'}"
-    d = f"🍽️ Ужин {'✅' if notif['dinner_enabled'] else '❌'}"
+def _notify_keyboard(notif: dict, lang: str = "ru") -> InlineKeyboardMarkup:
+    b_label = f"{t(lang, 'notif_breakfast')} {t(lang, 'notif_enabled') if notif['breakfast_enabled'] else t(lang, 'notif_disabled')}"
+    l_label = f"{t(lang, 'notif_lunch')} {t(lang, 'notif_enabled') if notif['lunch_enabled'] else t(lang, 'notif_disabled')}"
+    d_label = f"{t(lang, 'notif_dinner')} {t(lang, 'notif_enabled') if notif['dinner_enabled'] else t(lang, 'notif_disabled')}"
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("✅ Включить все", callback_data="notif_all_on"),
-            InlineKeyboardButton("❌ Отключить все", callback_data="notif_all_off"),
+            InlineKeyboardButton(t(lang, "btn_notif_all_on"), callback_data="notif_all_on"),
+            InlineKeyboardButton(t(lang, "btn_notif_all_off"), callback_data="notif_all_off"),
         ],
         [
-            InlineKeyboardButton(b, callback_data="notif_toggle_breakfast"),
+            InlineKeyboardButton(b_label, callback_data="notif_toggle_breakfast"),
             InlineKeyboardButton(f"🕐 {notif['breakfast_time']}", callback_data="notif_time_breakfast"),
         ],
         [
-            InlineKeyboardButton(l, callback_data="notif_toggle_lunch"),
+            InlineKeyboardButton(l_label, callback_data="notif_toggle_lunch"),
             InlineKeyboardButton(f"🕐 {notif['lunch_time']}", callback_data="notif_time_lunch"),
         ],
         [
-            InlineKeyboardButton(d, callback_data="notif_toggle_dinner"),
+            InlineKeyboardButton(d_label, callback_data="notif_toggle_dinner"),
             InlineKeyboardButton(f"🕐 {notif['dinner_time']}", callback_data="notif_time_dinner"),
         ],
-        [InlineKeyboardButton("🌍 Изменить часовой пояс", callback_data="notif_timezone")],
+        [InlineKeyboardButton(t(lang, "btn_notif_change_tz"), callback_data="notif_timezone")],
     ])
 
 
-def _onboarding_timezone_keyboard() -> InlineKeyboardMarkup:
+def _onboarding_timezone_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🇺🇦 Киев",    callback_data="onb_tz_2"),
-            InlineKeyboardButton("🇷🇺 Москва",  callback_data="onb_tz_3"),
+            InlineKeyboardButton(t(lang, "tz_kyiv"),    callback_data="onb_tz_2"),
+            InlineKeyboardButton(t(lang, "tz_moscow"),  callback_data="onb_tz_3"),
         ],
         [
-            InlineKeyboardButton("🇦🇿 Баку",    callback_data="onb_tz_4"),
-            InlineKeyboardButton("🇰🇿 Алматы",  callback_data="onb_tz_5"),
+            InlineKeyboardButton(t(lang, "tz_baku"),    callback_data="onb_tz_4"),
+            InlineKeyboardButton(t(lang, "tz_almaty"),  callback_data="onb_tz_5"),
         ],
         [
-            InlineKeyboardButton("🇺🇿 Ташкент", callback_data="onb_tz_5"),
-            InlineKeyboardButton("Новосибирск", callback_data="onb_tz_7"),
+            InlineKeyboardButton(t(lang, "tz_tashkent"), callback_data="onb_tz_5"),
+            InlineKeyboardButton(t(lang, "tz_novosibirsk"), callback_data="onb_tz_7"),
         ],
         [
-            InlineKeyboardButton("Иркутск",     callback_data="onb_tz_8"),
-            InlineKeyboardButton("Владивосток", callback_data="onb_tz_10"),
+            InlineKeyboardButton(t(lang, "tz_irkutsk"),     callback_data="onb_tz_8"),
+            InlineKeyboardButton(t(lang, "tz_vladivostok"), callback_data="onb_tz_10"),
         ],
-        [InlineKeyboardButton("❌ Пропустить",  callback_data="onb_tz_skip")],
+        [InlineKeyboardButton(t(lang, "tz_skip"),  callback_data="onb_tz_skip")],
     ])
 
 
-def _timezone_keyboard() -> InlineKeyboardMarkup:
+def _timezone_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🇺🇦 Киев",    callback_data="tz_2"),
-            InlineKeyboardButton("🇷🇺 Москва",  callback_data="tz_3"),
+            InlineKeyboardButton(t(lang, "tz_kyiv"),    callback_data="tz_2"),
+            InlineKeyboardButton(t(lang, "tz_moscow"),  callback_data="tz_3"),
         ],
         [
-            InlineKeyboardButton("🇦🇿 Баку",    callback_data="tz_4"),
-            InlineKeyboardButton("🇰🇿 Алматы",  callback_data="tz_5"),
+            InlineKeyboardButton(t(lang, "tz_baku"),    callback_data="tz_4"),
+            InlineKeyboardButton(t(lang, "tz_almaty"),  callback_data="tz_5"),
         ],
         [
-            InlineKeyboardButton("🇺🇿 Ташкент", callback_data="tz_5"),
-            InlineKeyboardButton("Новосибирск", callback_data="tz_7"),
+            InlineKeyboardButton(t(lang, "tz_tashkent"), callback_data="tz_5"),
+            InlineKeyboardButton(t(lang, "tz_novosibirsk"), callback_data="tz_7"),
         ],
         [
-            InlineKeyboardButton("Иркутск",     callback_data="tz_8"),
-            InlineKeyboardButton("Владивосток", callback_data="tz_10"),
+            InlineKeyboardButton(t(lang, "tz_irkutsk"),     callback_data="tz_8"),
+            InlineKeyboardButton(t(lang, "tz_vladivostok"), callback_data="tz_10"),
         ],
     ])
 
 
-MENU_ADD    = "🍽️ Добавить еду"
-MENU_DIARY  = "📔 Дневник"
-MENU_PROFILE = "👤 Профиль"
-MENU_HELP   = "❓ Помощь"
-
-
-def _main_keyboard() -> ReplyKeyboardMarkup:
+def _main_keyboard(lang: str = "ru") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
-            [KeyboardButton(MENU_DIARY)],
-            [KeyboardButton(MENU_PROFILE), KeyboardButton(MENU_HELP)],
+            [KeyboardButton(t(lang, "menu_diary"))],
+            [KeyboardButton(t(lang, "menu_profile")), KeyboardButton(t(lang, "menu_help"))],
         ],
         resize_keyboard=True,
-        input_field_placeholder="Отправь фото или напиши что поел...",
+        input_field_placeholder=t(lang, "input_placeholder"),
     )
 
 
-def _terms_keyboard() -> InlineKeyboardMarkup:
+def _terms_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Принимаю условия", callback_data="accept_terms"),
+        InlineKeyboardButton(t(lang, "btn_accept_terms"), callback_data="accept_terms"),
     ]])
 
 
@@ -340,48 +347,40 @@ def _subscribe_keyboard() -> InlineKeyboardMarkup:
     ]])
 
 
-def _paywall_keyboard() -> InlineKeyboardMarkup:
+def _paywall_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("💳 Оформить подписку", callback_data="show_subscribe"),
+        InlineKeyboardButton(t(lang, "btn_subscribe"), callback_data="show_subscribe"),
     ]])
 
 
-def _trial_notice(left: int) -> str:
+def _trial_notice(left: int, lang: str = "ru") -> str:
     if left == 0:
-        return (
-            "❌ *Бесплатные анализы закончились* (15 из 15)\n\n"
-            "Оформи подписку, чтобы продолжить считать калории 👇"
-        )
+        return t(lang, "trial_exhausted")
     elif left == 1:
-        return f"⚠️ Остался *1 бесплатный анализ* из {FREE_ANALYSES_LIMIT} → /subscribe"
+        return t(lang, "trial_last_1", limit=FREE_ANALYSES_LIMIT)
     elif left <= 3:
-        return f"⚠️ Осталось *{left} бесплатных анализа* из {FREE_ANALYSES_LIMIT} → /subscribe"
+        return t(lang, "trial_last_few", left=left, limit=FREE_ANALYSES_LIMIT)
     elif left <= 5:
-        return f"🎁 Осталось {left} бесплатных анализов из {FREE_ANALYSES_LIMIT} → /subscribe"
+        return t(lang, "trial_some_left", left=left, limit=FREE_ANALYSES_LIMIT)
     else:
-        return f"🎁 Бесплатных анализов: {left} из {FREE_ANALYSES_LIMIT}"
+        return t(lang, "trial_many_left", left=left, limit=FREE_ANALYSES_LIMIT)
 
 
-async def _send_terms(message, name: str):
+async def _send_terms(message, name: str, lang: str = "ru"):
     await message.reply_text(
-        f"👋 Привет, {name}!\n\n"
-        "Прежде чем начать, прочитай важное:\n\n"
-        "⚠️ Meal Scan — помощник для подсчёта калорий и КБЖУ.\n"
-        "Это не медицинское приложение. Бот не заменяет врача,\n"
-        "диетолога или нутрициолога.\n\n"
-        "📄 Условия использования: mealscan.org/terms.html\n\n"
-        "Нажимая кнопку ниже, ты соглашаешься с условиями использования.",
-        reply_markup=_terms_keyboard(),
+        t(lang, "terms_greeting", name=name),
+        reply_markup=_terms_keyboard(lang),
     )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    name = user.first_name or "друг"
+    name = user.first_name or t("ru", "default_friend")
     user_id = user.id
+    lang = _lang(user_id, user.language_code)
 
     if not db.get_terms_accepted(user_id):
-        await _send_terms(update.message, name)
+        await _send_terms(update.message, name, lang)
         return
 
     profile = db.get_profile(user_id)
@@ -390,73 +389,45 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if profile or meals:
         # Returning user
         await update.message.reply_text(
-            f"С возвращением, {name}! 👋\n\n"
-            "📸 Отправь фото еды или напиши что поел — посчитаю.",
+            t(lang, "welcome_back", name=name),
             parse_mode="Markdown",
-            reply_markup=_main_keyboard(),
+            reply_markup=_main_keyboard(lang),
         )
     else:
         # New user — onboarding
         await update.message.reply_text(
-            "Я помогаю следить за питанием — считаю калории и КБЖУ по фото или тексту.\n\n"
-            "📸 *Отправь фото любого блюда*\n"
-            "✏️ Или напиши что поел\n\n"
-            "Попробуй прямо сейчас ↓\n\n"
-            "———\n"
-            "ℹ️ Meal Scan — помощник для контроля питания, не медицинское приложение. При наличии заболеваний или перед сменой рациона проконсультируйтесь с врачом или диетологом.",
+            t(lang, "welcome_new"),
             parse_mode="Markdown",
-            reply_markup=_main_keyboard(),
+            reply_markup=_main_keyboard(lang),
         )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = _lang(update.effective_user.id, update.effective_user.language_code)
     await update.message.reply_text(
-        "🤖 *Как пользоваться ботом:*\n\n"
-        "📸 Отправь фото еды — посчитаю калории и КБЖУ\n"
-        "✏️ Напиши что поел — тоже посчитаю\n"
-        "Например: _«гречка с курицей 300г»_\n\n"
-        "📊 *Калории и питание:*\n"
-        "/today — итог за сегодня (калории, белки, жиры, углеводы)\n"
-        "/history — история питания за последние 7 дней\n"
-        "/goal 2000 150 — установить дневную цель по ккал и белку\n"
-        "/goal — посмотреть текущую цель\n"
-        "/reset — сбросить записи за сегодня\n\n"
-        "⚖️ *Вес и прогресс:*\n"
-        "/weight 80.5 — записать вес (делай каждый день)\n"
-        "/weight — посмотреть последний записанный вес\n"
-        "/target 75 — установить целевой вес\n"
-        "/target — посмотреть целевой вес и сколько осталось\n"
-        "/progress — динамика веса за 7 дней с 🟢🔴 изменениями\n\n"
-        "💡 Совет: чем чётче видна еда на фото, тем точнее результат!\n\n"
-        "🔔 *Напоминания:*\n"
-        "/notify — настроить напоминания о приёмах пищи\n\n"
-        "💬 *Поддержка:*\n"
-        "/support — написать в поддержку",
+        t(lang, "help_text"),
         parse_mode="Markdown"
     )
 
 
 async def support_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = _lang(update.effective_user.id, update.effective_user.language_code)
     await update.message.reply_text(
-        "💬 *Поддержка Meal Scan*\n\n"
-        "Если у тебя вопрос или проблема — напиши нам:\n\n"
-        "👉 @MealScanSupport",
+        t(lang, "support_text"),
         parse_mode="Markdown"
     )
 
 
 async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user_name = update.effective_user.first_name or "Пользователь"
+    lang = _lang(user_id, update.effective_user.language_code)
+    user_name = update.effective_user.first_name or t(lang, "default_friend")
     today = date.today().isoformat()
 
     meals = db.get_meals_for_day_with_ids(user_id, today)
 
     if not meals:
-        await update.message.reply_text(
-            "📭 Сегодня ещё нет записей о еде.\n"
-            "Отправь фото блюда, чтобы начать считать!"
-        )
+        await update.message.reply_text(t(lang, "today_empty"))
         return
 
     total_cal = sum(m["calories"] for m in meals)
@@ -480,38 +451,36 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cal_left = goal_cal - total_cal
     prot_left = max(0, goal_protein - total_protein)
 
-    lines = [f"📊 *Итог за сегодня — {user_name}*\n"]
+    lines = [t(lang, "today_header", name=user_name)]
     for i, meal in enumerate(meals, 1):
-        t = meal["time"]
-        lines.append(f"{i}. {meal['food_description']} — {meal['calories']} ккал ({t})")
+        tm = meal["time"]
+        lines.append(t(lang, "today_meal_line", i=i, food=meal['food_description'], cal=meal['calories'], time=tm))
 
-    lines.append(f"\n🔥 *Итого: {total_cal} ккал*")
-    lines.append(f"🥩 Белки: {total_protein} г  🧈 Жиры: {total_fat} г  🍞 Углеводы: {total_carbs} г")
+    lines.append(t(lang, "today_total_cal", cal=total_cal))
+    lines.append(t(lang, "today_macros", protein=total_protein, fat=total_fat, carbs=total_carbs))
 
     if cal_left > 0:
-        lines.append(f"\n🎯 Осталось до цели: *{cal_left} ккал* и *{prot_left} г белка*")
+        lines.append(t(lang, "today_cal_left", cal_left=cal_left, prot_left=prot_left))
     elif cal_left > -200:
-        lines.append(f"\n✅ *Цель по калориям выполнена!*")
+        lines.append(t(lang, "today_cal_done"))
     else:
-        lines.append(f"\n⚠️ Превышение цели на *{abs(cal_left)} ккал*")
+        lines.append(t(lang, "today_cal_over", over=abs(cal_left)))
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user_name = update.effective_user.first_name or "Пользователь"
+    lang = _lang(user_id, update.effective_user.language_code)
+    user_name = update.effective_user.first_name or t(lang, "default_friend")
 
     history = db.get_weekly_summary(user_id)
 
     if not history:
-        await update.message.reply_text(
-            "📭 Нет данных за последние 7 дней.\n"
-            "Отправь фото еды, чтобы начать!"
-        )
+        await update.message.reply_text(t(lang, "history_empty"))
         return
 
-    lines = [f"📅 *История за 7 дней — {user_name}*\n"]
+    lines = [t(lang, "history_header", name=user_name)]
     for entry in history:
         day = entry["day"]
         cal = entry["total_calories"]
@@ -522,36 +491,37 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             day_str = d.strftime("%-d %b")
         except Exception:
             day_str = day
-        lines.append(f"📆 {day_str}: *{cal} ккал* ({meals_count} приём{'ов' if meals_count != 1 else 'а'} пищи)")
+        if lang == "ru":
+            suffix = t(lang, "history_meals_suffix_other") if meals_count >= 5 else t(lang, "history_meals_suffix_1")
+        else:
+            suffix = t(lang, "history_meals_suffix_1") if meals_count == 1 else t(lang, "history_meals_suffix_other")
+        lines.append(t(lang, "history_entry", day=day_str, cal=cal, n=meals_count, suffix=suffix))
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
     today = date.today().isoformat()
     db.delete_meals_for_day(user_id, today)
-    await update.message.reply_text("🗑️ Данные за сегодня сброшены!")
+    await update.message.reply_text(t(lang, "reset_done"))
 
 
 async def goal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
 
     if not context.args:
         goal = db.get_goal(user_id)
         if goal:
             await update.message.reply_text(
-                f"🎯 *Твоя цель на день:*\n"
-                f"🔥 Калории: {goal['calories']} ккал\n"
-                f"🥩 Белок: {goal['protein']} г\n\n"
-                f"Чтобы изменить: `/goal 2000 150`",
+                t(lang, "goal_current", cal=goal['calories'], protein=goal['protein']),
                 parse_mode="Markdown"
             )
         else:
             await update.message.reply_text(
-                "🎯 Цель не установлена.\n\n"
-                "Установи так: `/goal калории белок`\n"
-                "Например: `/goal 2000 150`",
+                t(lang, "goal_not_set"),
                 parse_mode="Markdown"
             )
         return
@@ -561,33 +531,30 @@ async def goal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         protein = int(context.args[1]) if len(context.args) > 1 else 100
         db.set_goal(user_id, calories, protein)
         await update.message.reply_text(
-            f"✅ *Цель установлена!*\n"
-            f"🔥 Калории: {calories} ккал/день\n"
-            f"🥩 Белок: {protein} г/день",
+            t(lang, "goal_saved", cal=calories, protein=protein),
             parse_mode="Markdown"
         )
     except (ValueError, IndexError):
         await update.message.reply_text(
-            "❌ Неверный формат. Используй: `/goal 2000 150`",
+            t(lang, "goal_bad_format"),
             parse_mode="Markdown"
         )
 
 
 async def weight_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
 
     if not context.args:
         latest = db.get_latest_weight(user_id)
         if latest:
             await update.message.reply_text(
-                f"⚖️ *Последний вес:* {latest['weight']} кг ({latest['day']})\n\n"
-                f"Чтобы записать новый: `/weight 80.5`",
+                t(lang, "weight_last", weight=latest['weight'], day=latest['day']),
                 parse_mode="Markdown"
             )
         else:
             await update.message.reply_text(
-                "⚖️ Вес ещё не записан.\n\n"
-                "Запиши так: `/weight 80.5`",
+                t(lang, "weight_not_set"),
                 parse_mode="Markdown"
             )
         return
@@ -596,44 +563,44 @@ async def weight_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         weight = float(context.args[0].replace(",", "."))
         db.log_weight(user_id, weight)
 
-        response = f"⚖️ *Вес записан:* {weight} кг\n"
+        response = t(lang, "weight_saved", weight=weight)
 
         target = db.get_weight_goal(user_id)
         if target:
             target_w = target["target_weight"]
             diff = weight - target_w
             if diff > 0:
-                response += f"\n🎯 До цели ({target_w} кг): осталось *{diff:.1f} кг*\n"
+                response += t(lang, "weight_to_goal", target=target_w, diff=f"{diff:.1f}")
                 if diff <= 2:
-                    response += "💪 Совсем чуть-чуть! Ты почти у цели!"
+                    response += t(lang, "weight_almost")
                 elif diff <= 5:
-                    response += "🔥 Отличный прогресс, продолжай в том же духе!"
+                    response += t(lang, "weight_great_progress")
                 else:
-                    response += "💪 Хороший старт! Каждый день приближает тебя к цели."
+                    response += t(lang, "weight_good_start")
             elif diff < 0:
-                response += f"\n🏆 Цель достигнута! Ты на {abs(diff):.1f} кг ниже целевого веса!"
+                response += t(lang, "weight_goal_reached", diff=f"{abs(diff):.1f}")
             else:
-                response += "\n🎯 Ты точно на целевом весе! Отлично!"
+                response += t(lang, "weight_on_goal")
         else:
-            response += "\n💡 Установи целевой вес командой `/target 75`"
+            response += t(lang, "weight_set_target_hint")
 
         await update.message.reply_text(response, parse_mode="Markdown")
 
     except ValueError:
         await update.message.reply_text(
-            "❌ Неверный формат. Используй: `/weight 80.5`",
+            t(lang, "weight_bad_format"),
             parse_mode="Markdown"
         )
 
 
 async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
     history = db.get_weight_history(user_id, days=7)
 
     if not history:
         await update.message.reply_text(
-            "⚖️ Нет данных о весе.\n\n"
-            "Записывай вес каждый день командой `/weight 80.5` — буду показывать динамику!",
+            t(lang, "progress_empty"),
             parse_mode="Markdown"
         )
         return
@@ -641,7 +608,7 @@ async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target = db.get_weight_goal(user_id)
     target_w = target["target_weight"] if target else None
 
-    lines = ["📈 *Динамика веса:*\n"]
+    lines = [t(lang, "progress_header")]
     for i, entry in enumerate(history):
         w = entry["weight"]
         try:
@@ -651,58 +618,57 @@ async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             day_str = entry["day"]
 
         if i == 0:
-            lines.append(f"📅 {day_str}: *{w} кг*")
+            lines.append(t(lang, "progress_entry_first", day=day_str, w=w))
         else:
             prev = history[i - 1]["weight"]
             diff = w - prev
             if diff < 0:
-                arrow = f"🟢 {diff:.1f} кг"
+                lines.append(t(lang, "progress_entry_down", day=day_str, w=w, diff=f"{diff:.1f}"))
             elif diff > 0:
-                arrow = f"🔴 +{diff:.1f} кг"
+                lines.append(t(lang, "progress_entry_up", day=day_str, w=w, diff=f"{diff:.1f}"))
             else:
-                arrow = "➡️ без изменений"
-            lines.append(f"📅 {day_str}: *{w} кг* ({arrow})")
+                lines.append(t(lang, "progress_entry_same", day=day_str, w=w))
 
     if len(history) >= 2:
         total_diff = history[-1]["weight"] - history[0]["weight"]
         if total_diff < 0:
-            lines.append(f"\n📉 За период: *{total_diff:.1f} кг* — отличный результат!")
+            lines.append(t(lang, "progress_total_down", diff=f"{total_diff:.1f}"))
         elif total_diff > 0:
-            lines.append(f"\n📈 За период: *+{total_diff:.1f} кг*")
+            lines.append(t(lang, "progress_total_up", diff=f"{total_diff:.1f}"))
         else:
-            lines.append("\n➡️ За период: вес стабилен")
+            lines.append(t(lang, "progress_total_stable"))
 
     if target_w:
         current = history[-1]["weight"]
         diff_to_goal = current - target_w
         if diff_to_goal > 0:
-            lines.append(f"🎯 До цели ({target_w} кг): осталось *{diff_to_goal:.1f} кг*")
+            lines.append(t(lang, "progress_to_goal", target=target_w, diff=f"{diff_to_goal:.1f}"))
         else:
-            lines.append(f"🏆 Цель {target_w} кг — *достигнута!*")
+            lines.append(t(lang, "progress_goal_reached", target=target_w))
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
 async def target_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
 
     if not context.args:
         target = db.get_weight_goal(user_id)
         if target:
             latest = db.get_latest_weight(user_id)
-            msg = f"🎯 *Целевой вес:* {target['target_weight']} кг\n"
+            msg = t(lang, "target_current", target=target['target_weight'])
             if latest:
                 diff = latest["weight"] - target["target_weight"]
                 if diff > 0:
-                    msg += f"📍 Текущий вес: {latest['weight']} кг — осталось *{diff:.1f} кг*"
+                    msg += t(lang, "target_remaining", current=latest['weight'], diff=f"{diff:.1f}")
                 else:
-                    msg += f"🏆 Текущий вес: {latest['weight']} кг — цель достигнута!"
-            msg += f"\n\nИзменить: `/target 70`"
+                    msg += t(lang, "target_reached", current=latest['weight'])
+            msg += t(lang, "target_change_hint")
             await update.message.reply_text(msg, parse_mode="Markdown")
         else:
             await update.message.reply_text(
-                "🎯 Целевой вес не установлен.\n\n"
-                "Установи так: `/target 75`",
+                t(lang, "target_not_set"),
                 parse_mode="Markdown"
             )
         return
@@ -713,7 +679,7 @@ async def target_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             raise ValueError
     except ValueError:
         await update.message.reply_text(
-            "❌ Неверный формат. Используй: `/target 75`",
+            t(lang, "target_bad_format"),
             parse_mode="Markdown"
         )
         return
@@ -721,11 +687,10 @@ async def target_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profile = db.get_profile(user_id)
     if not profile or not all([profile.get('height'), profile.get('age'), profile.get('sex'), profile.get('activity')]):
         await update.message.reply_text(
-            "📋 Для проверки безопасности цели нужен профиль (рост, возраст, пол, активность).\n\n"
-            "Настрой профиль — и я проверю, насколько цель безопасна.",
+            t(lang, "target_need_profile"),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("👉 Настроить профиль", callback_data="profile_yes")
+                InlineKeyboardButton(t(lang, "btn_setup_profile"), callback_data="profile_yes")
             ]])
         )
         return
@@ -744,57 +709,49 @@ async def target_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if bmi >= 18.5:
         db.set_weight_goal(user_id, target_w)
         db.set_target_confirmation(user_id, 'safe')
-        text = f"✅ *Цель установлена: {target_w} кг*\n\n"
-        text += f"📊 Рекомендуемый калораж: *{recommended_cal} ккал/день*\n"
+        text = t(lang, "target_safe_set", target=target_w, cal=recommended_cal)
         if tdee - 500 < min_cal:
-            text += f"⚠️ _Минимально безопасный калораж: {min_cal} ккал/день_\n"
+            text += t(lang, "target_min_cal_warn", min_cal=min_cal)
         if weeks > 0:
-            text += f"⏱ Примерный срок: *{weeks} недель*"
+            text += t(lang, "target_weeks", weeks=weeks)
         await update.message.reply_text(text, parse_mode="Markdown")
 
     elif bmi >= 17:
         await update.message.reply_text(
-            f"⚠️ Целевой вес *{target_w} кг* даёт ИМТ *{bmi}* — ниже нормы.\n"
-            f"Минимально рекомендуемый вес для твоего роста: *{min_weight} кг*.\n\n"
-            f"Проконсультируйся со специалистом перед началом.",
+            t(lang, "target_warn_low_bmi", target=target_w, bmi=bmi, min_weight=min_weight),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("✅ Всё равно установить", callback_data=f"target_confirm_{target_w}"),
-                InlineKeyboardButton("✏️ Изменить цель", callback_data="target_change"),
+                InlineKeyboardButton(t(lang, "btn_target_confirm"), callback_data=f"target_confirm_{target_w}"),
+                InlineKeyboardButton(t(lang, "btn_target_change"), callback_data="target_change"),
             ]])
         )
 
     elif bmi >= 16:
         await update.message.reply_text(
-            f"🚨 Целевой вес *{target_w} кг* — это ИМТ *{bmi}*, опасно низкий показатель.\n"
-            f"Рекомендуемый минимум для роста {height} см: *{min_weight} кг*.\n\n"
-            f"Настоятельно рекомендуем проконсультироваться с врачом.",
+            t(lang, "target_danger_bmi", target=target_w, bmi=bmi, height=height, min_weight=min_weight),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("⚠️ Установить (не рекомендуется)", callback_data=f"target_confirm_{target_w}"),
-                InlineKeyboardButton("✏️ Изменить цель", callback_data="target_change"),
+                InlineKeyboardButton(t(lang, "btn_target_confirm_warn"), callback_data=f"target_confirm_{target_w}"),
+                InlineKeyboardButton(t(lang, "btn_target_change"), callback_data="target_change"),
             ]])
         )
 
     else:
         await update.message.reply_text(
-            f"❌ Установить цель *{target_w} кг* невозможно.\n"
-            f"Это ИМТ *{bmi}* — критически низкий показатель, опасный для жизни.\n\n"
-            f"Минимально допустимый вес для твоего роста: *{min_weight} кг*.\n"
-            f"Пожалуйста, обратись к врачу или диетологу.",
+            t(lang, "target_critical_bmi", target=target_w, bmi=bmi, min_weight=min_weight),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("✏️ Изменить цель", callback_data="target_change"),
+                InlineKeyboardButton(t(lang, "btn_target_change"), callback_data="target_change"),
             ]])
         )
 
 
-def _meal_keyboard(meal_id: int) -> InlineKeyboardMarkup:
+def _meal_keyboard(meal_id: int, lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("✅ Верно", callback_data=f"confirm_{meal_id}"),
-            InlineKeyboardButton("✏️ Исправить", callback_data=f"edit_{meal_id}"),
-            InlineKeyboardButton("🗑️ Удалить", callback_data=f"delete_{meal_id}"),
+            InlineKeyboardButton(t(lang, "btn_meal_confirm"), callback_data=f"confirm_{meal_id}"),
+            InlineKeyboardButton(t(lang, "btn_meal_edit"), callback_data=f"edit_{meal_id}"),
+            InlineKeyboardButton(t(lang, "btn_meal_delete"), callback_data=f"delete_{meal_id}"),
         ]
     ])
 
@@ -804,8 +761,7 @@ DEFAULT_PROT = 100    # средний белок без профиля
 
 
 def _meal_summary(result: dict, total_cal: int, total_protein: int,
-                  meals_count: int, goal: dict, profile: dict = None) -> str:
-    count = meals_count
+                  meals_count: int, goal: dict, profile: dict = None, lang: str = "ru") -> str:
     cal   = result['calories']
     prot  = result['protein']
 
@@ -821,60 +777,52 @@ def _meal_summary(result: dict, total_cal: int, total_protein: int,
 
     day_pct = round(total_cal / norm * 100)
 
-    text = (
-        f"🍽️ *{result['food_description']}*\n\n"
-        f"🔥 *{cal} ккал*\n"
-        f"🥩 Белки: *{prot} г*\n"
-        f"🧈 Жиры: {result['fat']} г\n"
-        f"🍞 Углеводы: {result['carbs']} г\n\n"
-        f"💬 _{result.get('comment', '')}_\n\n"
-        f"📊 *За сегодня:*\n"
-        f"🔥 {total_cal} ккал (~{day_pct}% нормы)  🥩 белок: *{total_protein} г*"
-    )
+    text = t(lang, "meal_summary_header",
+             food=result['food_description'],
+             cal=cal, protein=prot,
+             fat=result['fat'], carbs=result['carbs'],
+             comment=result.get('comment', ''),
+             total_cal=total_cal, day_pct=day_pct, total_protein=total_protein)
 
     if profile:
         cal_left  = cal_high - total_cal
         prot_left = max(0, prot_target - total_protein)
         if cal_left > 0:
-            text += (
-                f"\n\n🎯 Осталось до ориентира: *~{cal_left} ккал*"
-                f" и *~{prot_left} г белка*"
-                f"\n_(ориентир: {cal_low}–{cal_high} ккал/день)_"
-            )
+            text += t(lang, "meal_remaining_profile",
+                      cal_left=cal_left, prot_left=prot_left,
+                      cal_low=cal_low, cal_high=cal_high)
         elif total_cal <= cal_high + 200:
-            text += f"\n\n✅ В рамках ориентира! ({cal_low}–{cal_high} ккал/день)"
+            text += t(lang, "meal_on_target_profile", cal_low=cal_low, cal_high=cal_high)
         else:
             over = total_cal - cal_high
-            text += f"\n\n⚠️ Выше ориентира на ~*{over} ккал*"
+            text += t(lang, "meal_over_target_profile", over=over)
     else:
         cal_left  = DEFAULT_CAL  - total_cal
         prot_left = max(0, DEFAULT_PROT - total_protein)
         if cal_left > 0:
-            text += (
-                f"\n\n🎯 Осталось до средней нормы: *~{cal_left} ккал*"
-                f" и *~{prot_left} г белка*"
-            )
+            text += t(lang, "meal_remaining_default", cal_left=cal_left, prot_left=prot_left)
         elif cal_left > -200:
-            text += f"\n\n✅ Средняя норма выполнена!"
+            text += t(lang, "meal_on_target_default")
         else:
-            text += f"\n\n⚠️ Выше средней нормы на *{abs(cal_left)} ккал*"
+            text += t(lang, "meal_over_target_default", over=abs(cal_left))
 
     return text
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
     if not db.get_terms_accepted(user_id):
-        await _send_terms(update.message, update.effective_user.first_name or "друг")
+        await _send_terms(update.message, update.effective_user.first_name or t(lang, "default_friend"), lang)
         return
     if not db.has_access(user_id):
         await update.message.reply_text(
-            _trial_notice(0),
+            _trial_notice(0, lang),
             parse_mode="Markdown",
-            reply_markup=_paywall_keyboard(),
+            reply_markup=_paywall_keyboard(lang),
         )
         return
-    msg = await update.message.reply_text("🔍 Анализирую фото...")
+    msg = await update.message.reply_text(t(lang, "analyzing_photo"))
 
     try:
         photo = update.message.photo[-1]
@@ -885,7 +833,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption = update.message.caption.strip() if update.message.caption else None
 
         result = await asyncio.get_running_loop().run_in_executor(
-            None, analyze_food_image, image_bytes, caption
+            None, analyze_food_image, image_bytes, caption, lang
         )
 
         if "error" in result:
@@ -908,63 +856,70 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         profile = db.get_profile(user_id)
 
         await msg.edit_text(
-            _meal_summary(result, total_cal, total_protein, len(meals), goal, profile),
+            _meal_summary(result, total_cal, total_protein, len(meals), goal, profile, lang),
             parse_mode="Markdown",
-            reply_markup=_meal_keyboard(meal_id),
+            reply_markup=_meal_keyboard(meal_id, lang),
         )
         if not db.is_paid_active(user_id):
             db.use_free_analysis(user_id)
             left = db.get_free_analyses_left(user_id)
-            notice = _trial_notice(left)
+            notice = _trial_notice(left, lang)
             if notice:
                 await update.message.reply_text(
                     notice,
                     parse_mode="Markdown",
-                    reply_markup=_paywall_keyboard() if left == 0 else None,
+                    reply_markup=_paywall_keyboard(lang) if left == 0 else None,
                 )
-        await _maybe_send_profile_prompt(update.message, user_id, context)
+        await _maybe_send_profile_prompt(update.message, user_id, context, lang)
 
     except json.JSONDecodeError:
         logger.error("Failed to parse Claude response as JSON")
-        await msg.edit_text("😔 Не смог разобрать ответ. Попробуй ещё раз или сделай более чёткое фото.")
+        await msg.edit_text(t(lang, "analysis_error_parse"))
     except Exception as e:
         logger.error(f"Error processing photo: {e}")
-        await msg.edit_text("😔 Произошла ошибка при анализе фото. Попробуй ещё раз!")
+        await msg.edit_text(t(lang, "analysis_error_photo"))
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
 
     if not db.get_terms_accepted(user_id):
-        await _send_terms(update.message, update.effective_user.first_name or "друг")
+        await _send_terms(update.message, update.effective_user.first_name or t(lang, "default_friend"), lang)
         return
 
     # ── Меню-кнопки ───────────────────────────────────────────────
-    if text == MENU_ADD:
-        await update.message.reply_text(
-            "📸 Отправь фото еды или напиши что поел — посчитаю!"
-        )
+    if _is_menu(text, "menu_add"):
+        await update.message.reply_text(t(lang, "menu_add_prompt"))
         return
 
-    if text == MENU_DIARY:
+    if _is_menu(text, "menu_diary"):
         await today_command(update, context)
         return
 
-    if text == MENU_PROFILE:
+    if _is_menu(text, "menu_profile"):
         profile = db.get_profile(user_id)
         if not profile:
             await update.message.reply_text(
-                "📋 *Профиль не настроен*\n\n"
-                "Заполни профиль — и я буду точнее считать твою норму калорий и прогресс.",
+                t(lang, "profile_not_set"),
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("👉 Настроить профиль", callback_data="profile_yes")
+                    InlineKeyboardButton(t(lang, "btn_setup_profile"), callback_data="profile_yes")
                 ]])
             )
         else:
-            goal_labels = {"lose": "Похудеть 🥦", "maintain": "Держать вес ⚖️", "gain": "Набрать массу 💪"}
-            activity_labels = {"sedentary": "Сидячий 🪑", "light": "Лёгкая 🚶", "moderate": "Умеренная 🏃", "active": "Высокая 💪"}
+            goal_labels = {
+                "lose": t(lang, "profile_goal_lose"),
+                "maintain": t(lang, "profile_goal_maintain"),
+                "gain": t(lang, "profile_goal_gain"),
+            }
+            activity_labels = {
+                "sedentary": t(lang, "profile_activity_sedentary"),
+                "light": t(lang, "profile_activity_light"),
+                "moderate": t(lang, "profile_activity_moderate"),
+                "active": t(lang, "profile_activity_active"),
+            }
             protein = round(profile['daily_calories'] * 0.25 / 4)
 
             latest_weight = db.get_latest_weight(user_id)
@@ -973,43 +928,39 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             meals = db.get_meals_for_day(user_id, today)
             today_cal = sum(m["calories"] for m in meals)
 
-            text_lines = (
-                f"👤 *Твой профиль*\n\n"
-                f"🎯 Цель: {goal_labels.get(profile['goal'], profile['goal'])}\n"
-                f"⚡ Активность: {activity_labels.get(profile['activity'], profile['activity'])}\n"
-                f"📏 Рост: {profile['height']} см\n"
-                f"⚖️ Вес: {profile['weight']} кг\n"
-            )
+            text_lines = t(lang, "profile_view",
+                           goal=goal_labels.get(profile['goal'], profile['goal']),
+                           activity=activity_labels.get(profile['activity'], profile['activity']),
+                           height=profile['height'], weight=profile['weight'])
 
             if latest_weight:
                 current_w = latest_weight['weight']
-                text_lines += f"📅 Последний вес: *{current_w} кг* ({latest_weight['day']})\n"
+                text_lines += t(lang, "profile_last_weight", w=current_w, day=latest_weight['day'])
                 if weight_goal:
                     target_w = weight_goal['target_weight']
                     diff = round(current_w - target_w, 1)
                     if abs(diff) < 0.5:
-                        text_lines += f"🏁 Цель по весу: *{target_w} кг* — достигнута! 🎉\n"
+                        text_lines += t(lang, "profile_weight_goal_reached", target=target_w)
                     elif diff > 0:
-                        text_lines += f"🏁 До цели ({target_w} кг): *{diff} кг*\n"
+                        text_lines += t(lang, "profile_weight_to_goal", target=target_w, diff=diff)
                     else:
-                        text_lines += f"🏁 До цели ({target_w} кг): *{abs(diff)} кг*\n"
+                        text_lines += t(lang, "profile_weight_to_goal", target=target_w, diff=abs(diff))
 
-            text_lines += (
-                f"\n🔥 Норма: *{profile['target_cal_low']}–{profile['target_cal_high']} ккал/день*\n"
-                f"🥩 Белок: *{protein} г/день*\n"
-                f"📊 Съедено сегодня: *{today_cal} ккал*"
-            )
+            text_lines += t(lang, "profile_norm",
+                            low=profile['target_cal_low'], high=profile['target_cal_high'],
+                            protein=protein, today_cal=today_cal)
 
             await update.message.reply_text(
                 text_lines,
                 parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("✏️ Изменить профиль", callback_data="profile_yes")
-                ]])
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(t(lang, "btn_edit_profile"), callback_data="profile_yes")],
+                    [InlineKeyboardButton("🌍 Язык / Language", callback_data="open_language")],
+                ])
             )
         return
 
-    if text == MENU_HELP:
+    if _is_menu(text, "menu_help"):
         await help_command(update, context)
         return
 
@@ -1024,11 +975,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["p_age"] = age
             context.user_data["profile_step"] = "height"
             await update.message.reply_text(
-                "Твой рост?\n\nНапиши в сантиметрах, например: *178*",
+                t(lang, "ask_height"),
                 parse_mode="Markdown"
             )
         except ValueError:
-            await update.message.reply_text("Напиши возраст числом, например: *28*", parse_mode="Markdown")
+            await update.message.reply_text(t(lang, "age_bad"), parse_mode="Markdown")
         return
 
     if step == "height":
@@ -1039,11 +990,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["p_height"] = height
             context.user_data["profile_step"] = "weight"
             await update.message.reply_text(
-                "Твой текущий вес?\n\nНапиши в килограммах, например: *75*",
+                t(lang, "ask_weight"),
                 parse_mode="Markdown"
             )
         except ValueError:
-            await update.message.reply_text("Напиши рост числом в см, например: *178*", parse_mode="Markdown")
+            await update.message.reply_text(t(lang, "height_bad"), parse_mode="Markdown")
         return
 
     if step == "weight":
@@ -1054,14 +1005,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["p_weight"] = weight
             context.user_data["profile_step"] = "target_weight"
             await update.message.reply_text(
-                "Есть целевой вес?",
+                t(lang, "ask_target_weight"),
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("✏️ Да, укажу", callback_data="ptw_yes"),
-                    InlineKeyboardButton("Пропустить", callback_data="ptw_skip"),
+                    InlineKeyboardButton(t(lang, "btn_set_target_yes"), callback_data="ptw_yes"),
+                    InlineKeyboardButton(t(lang, "btn_skip"), callback_data="ptw_skip"),
                 ]])
             )
         except ValueError:
-            await update.message.reply_text("Напиши вес числом в кг, например: *75*", parse_mode="Markdown")
+            await update.message.reply_text(t(lang, "weight_bad"), parse_mode="Markdown")
         return
 
     if step == "target_weight":
@@ -1078,19 +1029,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if bmi >= 18.5:
                     db.set_weight_goal(user_id, target_w)
                     db.set_target_confirmation(user_id, 'safe')
-                    await _finish_profile(update.message, user_id, context)
+                    await _finish_profile(update.message, user_id, context, lang)
 
                 elif bmi >= 17:
                     context.user_data["pending_target_onb"] = target_w
                     context.user_data.pop("profile_step", None)
                     await update.message.reply_text(
-                        f"⚠️ Целевой вес *{target_w} кг* даёт ИМТ *{bmi}* — ниже нормы.\n"
-                        f"Минимально рекомендуемый вес для твоего роста: *{min_weight} кг*.\n\n"
-                        f"Проконсультируйся со специалистом перед началом.",
+                        t(lang, "target_warn_low_bmi", target=target_w, bmi=bmi, min_weight=min_weight),
                         parse_mode="Markdown",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("✅ Всё равно установить", callback_data=f"target_confirm_onb_{target_w}"),
-                            InlineKeyboardButton("✏️ Изменить цель", callback_data="target_change_onb"),
+                            InlineKeyboardButton(t(lang, "btn_target_confirm_onb"), callback_data=f"target_confirm_onb_{target_w}"),
+                            InlineKeyboardButton(t(lang, "btn_target_change_onb"), callback_data="target_change_onb"),
                         ]])
                     )
 
@@ -1098,30 +1047,26 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     context.user_data["pending_target_onb"] = target_w
                     context.user_data.pop("profile_step", None)
                     await update.message.reply_text(
-                        f"🚨 Целевой вес *{target_w} кг* — это ИМТ *{bmi}*, опасно низкий показатель.\n"
-                        f"Рекомендуемый минимум для роста {height} см: *{min_weight} кг*.\n\n"
-                        f"Настоятельно рекомендуем проконсультироваться с врачом.",
+                        t(lang, "target_danger_bmi", target=target_w, bmi=bmi, height=height, min_weight=min_weight),
                         parse_mode="Markdown",
                         reply_markup=InlineKeyboardMarkup([[
-                            InlineKeyboardButton("⚠️ Установить (не рекомендуется)", callback_data=f"target_confirm_onb_{target_w}"),
-                            InlineKeyboardButton("✏️ Изменить цель", callback_data="target_change_onb"),
+                            InlineKeyboardButton(t(lang, "btn_target_confirm_onb"), callback_data=f"target_confirm_onb_{target_w}"),
+                            InlineKeyboardButton(t(lang, "btn_target_change_onb"), callback_data="target_change_onb"),
                         ]])
                     )
 
                 else:
                     context.user_data["profile_step"] = "target_weight"
                     await update.message.reply_text(
-                        f"❌ Целевой вес *{target_w} кг* — ИМТ *{bmi}*, критически опасный показатель.\n"
-                        f"Минимально допустимый вес для роста {height} см: *{min_weight} кг*.\n\n"
-                        f"Напиши другой целевой вес:",
+                        t(lang, "target_weight_critical_onb", target=target_w, bmi=bmi, height=height, min_weight=min_weight),
                         parse_mode="Markdown"
                     )
             else:
                 db.set_weight_goal(user_id, target_w)
-                await _finish_profile(update.message, user_id, context)
+                await _finish_profile(update.message, user_id, context, lang)
 
         except ValueError:
-            await update.message.reply_text("Напиши вес числом в кг, например: *70*", parse_mode="Markdown")
+            await update.message.reply_text(t(lang, "target_weight_bad"), parse_mode="Markdown")
         return
 
     if step == "timezone":
@@ -1141,17 +1086,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.save_notifications(user_id, 1, 1, 1, offset)
             sign = "+" if offset >= 0 else ""
             await update.message.reply_text(
-                f"🔔 *Напоминания включены!*\n\n"
-                f"🕐 Часовой пояс определён: UTC{sign}{offset}\n"
-                f"☕ Завтрак — 9:00\n"
-                f"🍲 Обед — 13:00\n"
-                f"🍽️ Ужин — 19:00\n\n"
-                f"Настроить: /notify",
+                t(lang, "notif_tz_saved", tz=f"UTC{sign}{offset}"),
                 parse_mode="Markdown"
             )
         except (ValueError, IndexError):
             await update.message.reply_text(
-                "Не понял 🤔 Напиши время в формате *ЧЧ:ММ*, например: *23:15*",
+                t(lang, "timezone_bad"),
                 parse_mode="Markdown"
             )
         return
@@ -1159,16 +1099,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Режим исправления — пользователь нажал "Исправить" ───────
     if "editing_meal_id" in context.user_data:
         meal_id = context.user_data.pop("editing_meal_id")
-        msg = await update.message.reply_text(f"🔍 Пересчитываю...")
+        msg = await update.message.reply_text(t(lang, "recalculating"))
         try:
             original_meal = db.get_meal_by_id(meal_id, user_id)
             if original_meal:
                 result = await asyncio.get_running_loop().run_in_executor(
-                    None, analyze_food_correction, original_meal["food_description"], text
+                    None, analyze_food_correction, original_meal["food_description"], text, lang
                 )
             else:
                 result = await asyncio.get_running_loop().run_in_executor(
-                    None, analyze_food_text, text
+                    None, analyze_food_text, text, lang
                 )
             if "error" in result:
                 await msg.edit_text(f"❌ {result['error']}")
@@ -1189,13 +1129,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             profile = db.get_profile(user_id)
 
             await msg.edit_text(
-                "✅ *Исправлено!*\n\n" + _meal_summary(result, total_cal, total_protein, len(meals), goal, profile),
+                t(lang, "corrected_prefix") + _meal_summary(result, total_cal, total_protein, len(meals), goal, profile, lang),
                 parse_mode="Markdown",
-                reply_markup=_meal_keyboard(meal_id),
+                reply_markup=_meal_keyboard(meal_id, lang),
             )
         except Exception as e:
             logger.error(f"Error in editing flow: {e}")
-            await msg.edit_text("😔 Не смог пересчитать. Попробуй описать подробнее!")
+            await msg.edit_text(t(lang, "correction_error"))
         return
 
     # ── Обработка состояния изменения таймзоны через /notify ──────
@@ -1219,13 +1159,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sign = "+" if offset >= 0 else ""
             notif = db.get_notifications(user_id)
             await update.message.reply_text(
-                f"✅ Часовой пояс обновлён: UTC{sign}{offset}\n\n" + _notify_text(notif),
+                t(lang, "notif_timezone_updated", sign=sign, offset=offset) + _notify_text(notif, lang),
                 parse_mode="Markdown",
-                reply_markup=_notify_keyboard(notif)
+                reply_markup=_notify_keyboard(notif, lang)
             )
         except (ValueError, IndexError):
             await update.message.reply_text(
-                "Не понял 🤔 Напиши время в формате *ЧЧ:ММ*, например: *23:15*",
+                t(lang, "timezone_bad"),
                 parse_mode="Markdown"
             )
         return
@@ -1244,16 +1184,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 db.get_or_create_notifications(user_id)
                 db.save_notification_time(user_id, meal_type, time_str)
                 notif = db.get_notifications(user_id)
-                meal_names = {"breakfast": "завтрак", "lunch": "обед", "dinner": "ужин"}
+                meal_name = t(lang, f"meal_name_{meal_type}")
                 await update.message.reply_text(
-                    f"✅ Время напоминания ({meal_names.get(meal_type, meal_type)}) обновлено: *{time_str}*\n\n"
-                    + _notify_text(notif),
+                    t(lang, "notif_time_updated", meal=meal_name, time=time_str)
+                    + _notify_text(notif, lang),
                     parse_mode="Markdown",
-                    reply_markup=_notify_keyboard(notif),
+                    reply_markup=_notify_keyboard(notif, lang),
                 )
                 return
         await update.message.reply_text(
-            "❌ Не понял время. Напиши в формате *ЧЧ:ММ*, например: *08:30*",
+            t(lang, "notif_time_bad"),
             parse_mode="Markdown",
         )
         return
@@ -1261,25 +1201,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Обычный режим — распознавание еды
     if len(text) < 3:
         await update.message.reply_text(
-            "📸 Отправь фото еды или напиши что поел — я посчитаю калории!\n\n"
-            "Например: *«тарелка борща и хлеб»* или *«2 яйца, кофе с молоком»*",
+            t(lang, "short_input_hint"),
             parse_mode="Markdown"
         )
         return
 
     if not db.has_access(user_id):
         await update.message.reply_text(
-            _trial_notice(0),
+            _trial_notice(0, lang),
             parse_mode="Markdown",
-            reply_markup=_paywall_keyboard(),
+            reply_markup=_paywall_keyboard(lang),
         )
         return
 
-    msg = await update.message.reply_text("🔍 Считаю калории...")
+    msg = await update.message.reply_text(t(lang, "counting_calories"))
 
     try:
         result = await asyncio.get_running_loop().run_in_executor(
-            None, analyze_food_text, text
+            None, analyze_food_text, text, lang
         )
 
         if "error" in result:
@@ -1302,37 +1241,37 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         profile = db.get_profile(user_id)
 
         await msg.edit_text(
-            _meal_summary(result, total_cal, total_protein, len(meals), goal, profile),
+            _meal_summary(result, total_cal, total_protein, len(meals), goal, profile, lang),
             parse_mode="Markdown",
-            reply_markup=_meal_keyboard(meal_id),
+            reply_markup=_meal_keyboard(meal_id, lang),
         )
         if not db.is_paid_active(user_id):
             db.use_free_analysis(user_id)
             left = db.get_free_analyses_left(user_id)
-            notice = _trial_notice(left)
+            notice = _trial_notice(left, lang)
             if notice:
                 await update.message.reply_text(
                     notice,
                     parse_mode="Markdown",
-                    reply_markup=_paywall_keyboard() if left == 0 else None,
+                    reply_markup=_paywall_keyboard(lang) if left == 0 else None,
                 )
-        await _maybe_send_profile_prompt(update.message, user_id, context)
+        await _maybe_send_profile_prompt(update.message, user_id, context, lang)
 
     except json.JSONDecodeError:
-        await msg.edit_text("😔 Не смог разобрать. Попробуй описать подробнее!")
+        await msg.edit_text(t(lang, "analysis_error_text"))
     except Exception as e:
         logger.error(f"Error processing text: {e}")
-        await msg.edit_text("😔 Произошла ошибка. Попробуй ещё раз!")
+        await msg.edit_text(t(lang, "analysis_error_generic"))
 
 
-def _profile_prompt_keyboard() -> InlineKeyboardMarkup:
+def _profile_prompt_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("👉 Да, давай", callback_data="profile_yes"),
-        InlineKeyboardButton("Пропустить", callback_data="profile_skip"),
+        InlineKeyboardButton(t(lang, "btn_profile_yes"), callback_data="profile_yes"),
+        InlineKeyboardButton(t(lang, "btn_profile_skip"), callback_data="profile_skip"),
     ]])
 
 
-async def _finish_profile(message, user_id: int, context) -> None:
+async def _finish_profile(message, user_id: int, context, lang: str = "ru") -> None:
     """Сохраняет профиль и отправляет финальный результат."""
     goal     = context.user_data.get("p_goal", "maintain")
     sex      = context.user_data.get("p_sex", "male")
@@ -1361,68 +1300,68 @@ async def _finish_profile(message, user_id: int, context) -> None:
     if target:
         diff = weight - target["target_weight"]
         if diff > 0:
-            target_line = f"\n⚖️ Целевой вес: *{target['target_weight']} кг* (осталось ~{diff:.1f} кг)"
+            target_line = t(lang, "profile_target_line_remaining", target=target['target_weight'], diff=f"{diff:.1f}")
         else:
-            target_line = f"\n⚖️ Целевой вес: *{target['target_weight']} кг* — уже достигнут! 🏆"
+            target_line = t(lang, "profile_target_line_reached", target=target['target_weight'])
 
-    goal_label = {
-        "lose":     "Похудеть",
-        "maintain": "Держать вес",
-        "gain":     "Набрать массу",
-    }[goal]
+    goal_label = t(lang, f"goal_label_{goal}")
 
     await message.reply_text(
-        f"✅ *Всё готово!*\n\n"
-        f"🎯 Цель: *{goal_label}*\n"
-        f"🔥 Калории: *{low}–{high} ккал/день*\n"
-        f"🥩 Белок: *~{protein} г/день*"
-        f"{target_line}\n\n"
-        f"После каждого приёма пищи буду показывать сколько ккал осталось до цели 🎯",
+        t(lang, "profile_done",
+          goal=goal_label, low=low, high=high, protein=protein, target_line=target_line),
         parse_mode="Markdown"
     )
 
     context.user_data["profile_step"] = "timezone"
     await message.reply_text(
-        "🔔 *Настроим напоминания для трекинга питания!*\n\n"
-        "Я буду напоминать тебе записывать еду — просто скинь фото или напиши, что поел.\n\n"
-        "Напиши, сколько сейчас у тебя времени, например: *23:15*",
+        t(lang, "ask_timezone"),
         parse_mode="Markdown"
     )
 
 
-async def _maybe_send_profile_prompt(message, user_id: int, context) -> None:
+async def _maybe_send_profile_prompt(message, user_id: int, context, lang: str = "ru") -> None:
     """Отправляет приглашение настроить профиль — один раз, сразу после первого результата."""
     profile = db.get_profile(user_id)
     if not profile and not context.user_data.get("profile_prompted"):
         context.user_data["profile_prompted"] = True
         await message.reply_text(
-            "📊 *Давай настроим калории под тебя и твою цель*\n\n"
-            "Ответь на 4 вопроса — и расчёт станет точнее\n"
-            "Займёт меньше 30 секунд",
+            t(lang, "profile_prompt_title"),
             parse_mode="Markdown",
-            reply_markup=_profile_prompt_keyboard(),
+            reply_markup=_profile_prompt_keyboard(lang),
         )
 
-def _goal_keyboard() -> InlineKeyboardMarkup:
+def _goal_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("📉 Похудеть", callback_data="pg_lose"),
-        InlineKeyboardButton("⚖️ Держать вес", callback_data="pg_maintain"),
-        InlineKeyboardButton("📈 Набрать массу", callback_data="pg_gain"),
+        InlineKeyboardButton(t(lang, "btn_goal_lose"), callback_data="pg_lose"),
+        InlineKeyboardButton(t(lang, "btn_goal_maintain"), callback_data="pg_maintain"),
+        InlineKeyboardButton(t(lang, "btn_goal_gain"), callback_data="pg_gain"),
     ]])
 
-def _sex_keyboard() -> InlineKeyboardMarkup:
+def _sex_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("👨 Мужской", callback_data="ps_male"),
-        InlineKeyboardButton("👩 Женский", callback_data="ps_female"),
+        InlineKeyboardButton(t(lang, "btn_sex_male"), callback_data="ps_male"),
+        InlineKeyboardButton(t(lang, "btn_sex_female"), callback_data="ps_female"),
     ]])
 
-def _activity_keyboard() -> InlineKeyboardMarkup:
+def _activity_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🪑 Сидячий (офис, без спорта)", callback_data="pa_sedentary")],
-        [InlineKeyboardButton("🚶 Лёгкая активность (1–2 раза в неделю)", callback_data="pa_light")],
-        [InlineKeyboardButton("🏃 Умеренная (3–5 раз в неделю)", callback_data="pa_moderate")],
-        [InlineKeyboardButton("💪 Высокая (каждый день)", callback_data="pa_active")],
+        [InlineKeyboardButton(t(lang, "btn_activity_sedentary"), callback_data="pa_sedentary")],
+        [InlineKeyboardButton(t(lang, "btn_activity_light"), callback_data="pa_light")],
+        [InlineKeyboardButton(t(lang, "btn_activity_moderate"), callback_data="pa_moderate")],
+        [InlineKeyboardButton(t(lang, "btn_activity_active"), callback_data="pa_active")],
     ])
+
+
+async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
+    await update.message.reply_text(
+        t(lang, "choose_language"),
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton(t(lang, "btn_lang_ru"), callback_data="set_lang:ru"),
+            InlineKeyboardButton(t(lang, "btn_lang_en"), callback_data="set_lang:en"),
+        ]])
+    )
 
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1430,6 +1369,26 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     data = query.data
+    lang = _lang(user_id, query.from_user.language_code)
+
+    # ── Language selection ─────────────────────────────────────────
+    if data.startswith("set_lang:"):
+        chosen = data.split(":")[1]
+        db.set_user_language(user_id, chosen)
+        key = "language_changed_ru" if chosen == "ru" else "language_changed_en"
+        await query.edit_message_text(t(chosen, key))
+        return
+
+    elif data == "open_language":
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            t(lang, "choose_language"),
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(t(lang, "btn_lang_ru"), callback_data="set_lang:ru"),
+                InlineKeyboardButton(t(lang, "btn_lang_en"), callback_data="set_lang:en"),
+            ]])
+        )
+        return
 
     # ── Terms acceptance ──────────────────────────────────────────
     if data == "accept_terms":
@@ -1439,36 +1398,25 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"Terms accepted by {user_id}")
         except Exception as e:
             logger.error(f"Error accepting terms for {user_id}: {e}")
-            await query.message.reply_text(f"❌ Ошибка: {e}")
+            await query.message.reply_text(t(lang, "error_terms", e=e))
             return
         await query.edit_message_reply_markup(reply_markup=None)
-        name = query.from_user.first_name or "друг"
+        name = query.from_user.first_name or t(lang, "default_friend")
         profile = db.get_profile(user_id)
         meals = db.get_meals_for_day(user_id, date.today().isoformat())
         if profile or meals:
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
-                text=(
-                    f"С возвращением, {name}! 👋\n\n"
-                    "📸 Отправь фото еды или напиши что поел — посчитаю."
-                ),
+                text=t(lang, "welcome_back", name=name),
                 parse_mode="Markdown",
-                reply_markup=_main_keyboard(),
+                reply_markup=_main_keyboard(lang),
             )
         else:
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
-                text=(
-                    "Я помогаю следить за питанием — считаю калории и КБЖУ по фото или тексту.\n\n"
-                    "📸 *Отправь фото любого блюда*\n"
-                    "✏️ Или напиши что поел\n\n"
-                    "Попробуй прямо сейчас ↓\n\n"
-                    "———\n"
-                    "ℹ️ Meal Scan — помощник для контроля питания, не медицинское приложение. "
-                    "При наличии заболеваний или перед сменой рациона проконсультируйтесь с врачом или диетологом."
-                ),
+                text=t(lang, "welcome_new"),
                 parse_mode="Markdown",
-                reply_markup=_main_keyboard(),
+                reply_markup=_main_keyboard(lang),
             )
         return
 
@@ -1497,15 +1445,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cal_left = goal_cal - total_cal
         prot_left = max(0, goal_protein - total_protein)
         if cal_left > 0:
-            remaining_line = f"🎯 Осталось до цели: *{cal_left} ккал* и *{prot_left} г белка*"
+            remaining_line = t(lang, "diary_cal_left", cal_left=cal_left, prot_left=prot_left)
         elif cal_left > -200:
-            remaining_line = "✅ Цель по калориям выполнена!"
+            remaining_line = t(lang, "diary_cal_done")
         else:
-            remaining_line = f"⚠️ Превышение цели на *{abs(cal_left)} ккал*"
+            remaining_line = t(lang, "diary_cal_over", over=abs(cal_left))
         await query.edit_message_text(
-            f"🗑️ Запись удалена.\n\n"
-            f"📊 Съедено за сегодня: *{total_cal} ккал* / 🥩 *{total_protein} г белка* ({len(meals)} приёмов)\n"
-            f"{remaining_line}",
+            t(lang, "diary_deleted",
+              cal=total_cal, protein=total_protein, n=len(meals), remaining=remaining_line),
             parse_mode="Markdown"
         )
 
@@ -1513,14 +1460,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         meal_id = int(data.split("_")[1])
         context.user_data["editing_meal_id"] = meal_id
         await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text("✏️ Напиши как правильно — я пересчитаю:")
+        await query.message.reply_text(t(lang, "edit_prompt"))
 
     # ── Profile flow ──────────────────────────────────────────────
     elif data == "profile_yes":
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            "Какая у тебя цель?",
-            reply_markup=_goal_keyboard()
+            t(lang, "ask_goal"),
+            reply_markup=_goal_keyboard(lang)
         )
 
     elif data == "profile_skip":
@@ -1530,15 +1477,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         goal = data[3:]  # lose / maintain / gain
         context.user_data["p_goal"] = goal
         await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_text("Твой пол?", reply_markup=_sex_keyboard())
+        await query.message.reply_text(t(lang, "ask_sex"), reply_markup=_sex_keyboard(lang))
 
     elif data.startswith("ps_"):  # sex selected
         sex = data[3:]  # male / female
         context.user_data["p_sex"] = sex
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            "Твой образ жизни?",
-            reply_markup=_activity_keyboard()
+            t(lang, "ask_activity"),
+            reply_markup=_activity_keyboard(lang)
         )
 
     elif data.startswith("pa_"):  # activity selected
@@ -1547,7 +1494,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["profile_step"] = "age"
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            "Сколько тебе лет?\n\nНапиши число, например: *28*",
+            t(lang, "ask_age"),
             parse_mode="Markdown"
         )
 
@@ -1555,13 +1502,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["profile_step"] = "target_weight"
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            "Напиши целевой вес в кг, например: *70*",
+            t(lang, "ask_target_weight_enter"),
             parse_mode="Markdown"
         )
 
     elif data == "ptw_skip":
         await query.edit_message_reply_markup(reply_markup=None)
-        await _finish_profile(query.message, user_id, context)
+        await _finish_profile(query.message, user_id, context, lang)
 
     # ── Notifications ─────────────────────────────────────────────
     elif data in ("notif_all_on", "notif_all_off"):
@@ -1570,8 +1517,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.save_notifications(user_id, val, val, val, notif["timezone_offset"])
         notif = db.get_notifications(user_id)
         await query.edit_message_text(
-            _notify_text(notif), parse_mode="Markdown",
-            reply_markup=_notify_keyboard(notif)
+            _notify_text(notif, lang), parse_mode="Markdown",
+            reply_markup=_notify_keyboard(notif, lang)
         )
 
     elif data.startswith("notif_toggle_"):
@@ -1587,18 +1534,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         notif = db.get_notifications(user_id)
         await query.edit_message_text(
-            _notify_text(notif), parse_mode="Markdown",
-            reply_markup=_notify_keyboard(notif)
+            _notify_text(notif, lang), parse_mode="Markdown",
+            reply_markup=_notify_keyboard(notif, lang)
         )
 
     elif data.startswith("notif_time_"):
         meal_type = data[len("notif_time_"):]  # breakfast / lunch / dinner
         context.user_data["setting_notification_time"] = meal_type
-        meal_names = {"breakfast": "завтрак", "lunch": "обед", "dinner": "ужин"}
+        meal_name = t(lang, f"meal_name_{meal_type}")
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            f"⏰ Напиши новое время для напоминания про *{meal_names.get(meal_type, meal_type)}*\n\n"
-            f"Формат: *ЧЧ:ММ*, например: *08:30*",
+            t(lang, "notif_time_prompt", meal=meal_name),
             parse_mode="Markdown",
         )
 
@@ -1606,8 +1552,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["setting_timezone"] = True
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            "🕐 Напиши сколько сейчас у тебя времени, например: *23:15*\n\n"
-            "Определю часовой пояс автоматически.",
+            t(lang, "notif_timezone_prompt"),
             parse_mode="Markdown"
         )
 
@@ -1623,30 +1568,22 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         notif = db.get_notifications(user_id)
         await query.edit_message_text(
-            _notify_text(notif), parse_mode="Markdown",
-            reply_markup=_notify_keyboard(notif)
+            _notify_text(notif, lang), parse_mode="Markdown",
+            reply_markup=_notify_keyboard(notif, lang)
         )
 
     elif data.startswith("onb_tz_"):
         val = data[len("onb_tz_"):]
         if val == "skip":
             await query.edit_message_reply_markup(reply_markup=None)
-            await query.message.reply_text(
-                "Окей, без напоминаний 👌\n"
-                "Включить в любой момент: /notify"
-            )
+            await query.message.reply_text(t(lang, "onb_tz_skip"))
         else:
             offset = int(val)
             db.save_notifications(user_id, 1, 1, 1, offset)
             tz_label = _tz_str(offset)
             await query.edit_message_reply_markup(reply_markup=None)
             await query.message.reply_text(
-                f"🔔 *Напоминания включены!*\n\n"
-                f"🌍 Часовой пояс: {tz_label}\n"
-                f"☕ Завтрак — 9:00\n"
-                f"🍲 Обед — 13:00\n"
-                f"🍽️ Ужин — 19:00\n\n"
-                f"Настроить: /notify",
+                t(lang, "onb_tz_saved", tz=tz_label),
                 parse_mode="Markdown"
             )
 
@@ -1656,13 +1593,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.set_target_confirmation(user_id, 'confirmed_low_bmi')
         context.user_data.pop("pending_target_onb", None)
         await query.edit_message_reply_markup(reply_markup=None)
-        await _finish_profile(query.message, user_id, context)
+        await _finish_profile(query.message, user_id, context, lang)
 
     elif data == "target_change_onb":
         context.user_data["profile_step"] = "target_weight"
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            "Напиши другой целевой вес в кг, например: *70*",
+            t(lang, "target_change_onb_prompt"),
             parse_mode="Markdown"
         )
 
@@ -1672,27 +1609,26 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.set_target_confirmation(user_id, 'confirmed_low_bmi')
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            f"✅ Целевой вес *{target_w} кг* установлен.\n\n"
-            f"⚠️ Помни о рекомендации проконсультироваться со специалистом.",
+            t(lang, "target_confirmed_msg", target=target_w),
             parse_mode="Markdown"
         )
 
     elif data == "target_change":
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            "Введи новый целевой вес: `/target 70`",
+            t(lang, "target_change_prompt"),
             parse_mode="Markdown"
         )
 
     elif data == "show_subscribe":
         left = db.get_free_analyses_left(user_id)
         if left > 0:
-            trial_line = f"🎁 Бесплатных анализов осталось: *{left} из {FREE_ANALYSES_LIMIT}*\n\n"
+            trial_line = t(lang, "subscribe_remaining", left=left, limit=FREE_ANALYSES_LIMIT)
         else:
-            trial_line = "❌ Бесплатные анализы закончились\n\n"
+            trial_line = t(lang, "subscribe_exhausted")
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            f"{trial_line}💳 *Подписка Meal Scan*\n\nВыбери тариф:",
+            trial_line + t(lang, "subscribe_header"),
             parse_mode="Markdown",
             reply_markup=_subscribe_keyboard(),
         )
@@ -1700,12 +1636,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data in ("sub_1m", "sub_3m"):
         months = 3 if data == "sub_3m" else 1
         price = PRICE_3M if months == 3 else PRICE_1M
-        title = f"Подписка Meal Scan — {'3 месяца' if months == 3 else '1 месяц'}"
+        title_key = "sub_invoice_title_3m" if months == 3 else "sub_invoice_title_1m"
+        title = t(lang, title_key)
         try:
             await context.bot.send_invoice(
                 chat_id=query.message.chat_id,
                 title=title,
-                description="Неограниченный подсчёт калорий и КБЖУ по фото и тексту",
+                description=t(lang, "sub_invoice_desc"),
                 payload=data,
                 provider_token="",
                 currency="XTR",
@@ -1713,13 +1650,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as e:
             logger.error(f"send_invoice error: {e}")
-            await query.message.reply_text(f"❌ Ошибка при создании счёта: {e}")
+            await query.message.reply_text(t(lang, "sub_invoice_error", e=e))
 
     elif data == "quick_add":
         await query.answer()
-        await query.message.reply_text(
-            "📸 Отправь фото еды или напиши что поел — посчитаю!"
-        )
+        await query.message.reply_text(t(lang, "quick_add_prompt"))
 
     elif data.startswith("notif_snooze_"):
         meal = data[len("notif_snooze_"):]  # breakfast / lunch / dinner
@@ -1731,21 +1666,21 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             0 if meal == "dinner"    else notif["dinner_enabled"],
             notif["timezone_offset"],
         )
-        meal_names = {"breakfast": "завтрак", "lunch": "обед", "dinner": "ужин"}
+        meal_name = t(lang, f"meal_name_{meal}")
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
-            f"✅ Напоминание про {meal_names.get(meal, meal)} отключено.\n"
-            f"Включить обратно: /notify"
+            t(lang, "notif_snooze_done", meal=meal_name)
         )
 
 
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
     today = date.today().isoformat()
 
     if not context.args:
         await update.message.reply_text(
-            "❌ Укажи номер приёма пищи.\nПример: `/delete 2`\n\nСписок за сегодня: /today",
+            t(lang, "delete_no_num"),
             parse_mode="Markdown"
         )
         return
@@ -1753,18 +1688,18 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         num = int(context.args[0])
     except ValueError:
-        await update.message.reply_text("❌ Номер должен быть числом. Например: `/delete 2`", parse_mode="Markdown")
+        await update.message.reply_text(t(lang, "delete_bad_num"), parse_mode="Markdown")
         return
 
     meals = db.get_meals_for_day_with_ids(user_id, today)
 
     if not meals:
-        await update.message.reply_text("📭 Сегодня нет записей о еде.")
+        await update.message.reply_text(t(lang, "delete_no_meals"))
         return
 
     if num < 1 or num > len(meals):
         await update.message.reply_text(
-            f"❌ Нет приёма #{num}. Сегодня записей: {len(meals)}.\n\nПосмотреть список: /today",
+            t(lang, "delete_out_of_range", num=num, total=len(meals)),
             parse_mode="Markdown"
         )
         return
@@ -1776,21 +1711,21 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_cal = sum(m["calories"] for m in remaining)
 
     await update.message.reply_text(
-        f"🗑️ Удалено: *{meal['food_description']}* ({meal['calories']} ккал)\n\n"
-        f"📊 За сегодня осталось: *{total_cal} ккал* ({len(remaining)} приёмов)",
+        t(lang, "delete_done",
+          food=meal['food_description'], cal=meal['calories'],
+          total_cal=total_cal, n=len(remaining)),
         parse_mode="Markdown"
     )
 
 
 async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
     today = date.today().isoformat()
 
     if not context.args or len(context.args) < 2:
         await update.message.reply_text(
-            "✏️ Формат: `/edit номер новое описание`\n"
-            "Пример: `/edit 2 борщ с говядиной 400г`\n\n"
-            "Список за сегодня: /today",
+            t(lang, "edit_no_args"),
             parse_mode="Markdown"
         )
         return
@@ -1798,29 +1733,29 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         num = int(context.args[0])
     except ValueError:
-        await update.message.reply_text("❌ Первым укажи номер. Например: `/edit 2 борщ 400г`", parse_mode="Markdown")
+        await update.message.reply_text(t(lang, "edit_bad_num"), parse_mode="Markdown")
         return
 
     new_description = " ".join(context.args[1:])
     meals = db.get_meals_for_day_with_ids(user_id, today)
 
     if not meals:
-        await update.message.reply_text("📭 Сегодня нет записей о еде.")
+        await update.message.reply_text(t(lang, "edit_no_meals"))
         return
 
     if num < 1 or num > len(meals):
         await update.message.reply_text(
-            f"❌ Нет приёма #{num}. Сегодня записей: {len(meals)}.",
+            t(lang, "edit_out_of_range", num=num, total=len(meals)),
             parse_mode="Markdown"
         )
         return
 
     meal = meals[num - 1]
-    msg = await update.message.reply_text(f"🔍 Пересчитываю...")
+    msg = await update.message.reply_text(t(lang, "recalculating"))
 
     try:
         result = await asyncio.get_running_loop().run_in_executor(
-            None, analyze_food_correction, meal["food_description"], new_description
+            None, analyze_food_correction, meal["food_description"], new_description, lang
         )
 
         if "error" in result:
@@ -1842,17 +1777,18 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_protein = sum(m["protein"] for m in updated)
 
         await msg.edit_text(
-            f"✅ *Приём #{num} обновлён*\n\n"
-            f"🍽️ {result['food_description']}\n"
-            f"🔥 {result['calories']} ккал | 🥩 {result['protein']} г | "
-            f"🧈 {result['fat']} г | 🍞 {result['carbs']} г\n\n"
-            f"📊 За сегодня: *{total_cal} ккал* / 🥩 *{total_protein} г белка*",
+            t(lang, "edit_done",
+              num=num,
+              food=result['food_description'],
+              cal=result['calories'], protein=result['protein'],
+              fat=result['fat'], carbs=result['carbs'],
+              total_cal=total_cal, total_protein=total_protein),
             parse_mode="Markdown"
         )
 
     except Exception as e:
         logger.error(f"Error in edit_command: {e}")
-        await msg.edit_text("😔 Не смог пересчитать. Попробуй описать подробнее!")
+        await msg.edit_text(t(lang, "correction_error"))
 
 
 async def resetme_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1865,22 +1801,22 @@ async def resetme_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for table in ("users", "profiles", "meals", "goals", "weight_log", "weight_goal", "notifications"):
                 cur.execute(f"DELETE FROM {table} WHERE user_id = %s", (user_id,))
         conn.commit()
-    await update.message.reply_text("✅ Все данные сброшены. Напиши /start чтобы начать заново.")
+    await update.message.reply_text(t("ru", "resetme_done"))
 
 
 async def gift_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     if not context.args:
-        await update.message.reply_text("Использование: /gift <user_id>")
+        await update.message.reply_text(t("ru", "gift_usage"))
         return
     try:
         target_id = int(context.args[0])
     except ValueError:
-        await update.message.reply_text("❌ user_id должен быть числом")
+        await update.message.reply_text(t("ru", "gift_bad_id"))
         return
     db.gift_access(target_id)
-    await update.message.reply_text(f"✅ Пользователю {target_id} выдан бессрочный доступ.")
+    await update.message.reply_text(t("ru", "gift_done", uid=target_id))
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1911,36 +1847,34 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
     notif = db.get_or_create_notifications(user_id)
     await update.message.reply_text(
-        _notify_text(notif),
+        _notify_text(notif, lang),
         parse_mode="Markdown",
-        reply_markup=_notify_keyboard(notif),
+        reply_markup=_notify_keyboard(notif, lang),
     )
 
 
 async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
     if db.is_paid_active(user_id):
         sub = db.get_subscription(user_id)
         expires = datetime.fromisoformat(sub["sub_expires_at"]).strftime("%-d %B %Y")
         await update.message.reply_text(
-            f"✅ *Подписка активна до {expires}*\n\n"
-            "Можешь продлить заранее — срок добавится к текущему:",
+            t(lang, "subscribe_active", expires=expires),
             parse_mode="Markdown",
             reply_markup=_subscribe_keyboard(),
         )
     else:
         left = db.get_free_analyses_left(user_id)
         if left > 0:
-            trial_line = f"🎁 Бесплатных анализов осталось: *{left} из {FREE_ANALYSES_LIMIT}*\n\n"
+            trial_line = t(lang, "subscribe_remaining", left=left, limit=FREE_ANALYSES_LIMIT)
         else:
-            trial_line = "❌ Бесплатные анализы закончились\n\n"
+            trial_line = t(lang, "subscribe_exhausted")
         await update.message.reply_text(
-            f"{trial_line}"
-            "💳 *Подписка Meal Scan*\n\n"
-            "Неограниченный подсчёт калорий по фото и тексту\n\n"
-            "Выбери тариф:",
+            trial_line + t(lang, "subscribe_header_full"),
             parse_mode="Markdown",
             reply_markup=_subscribe_keyboard(),
         )
@@ -1952,16 +1886,15 @@ async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def successful_payment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = _lang(user_id, update.effective_user.language_code)
     payload = update.message.successful_payment.invoice_payload
     months = 3 if payload == "sub_3m" else 1
     db.activate_subscription(user_id, months)
-    label = "3 месяца" if months == 3 else "1 месяц"
+    label = t(lang, "sub_3m_label") if months == 3 else t(lang, "sub_1m_label")
     await update.message.reply_text(
-        f"🎉 *Подписка активирована на {label}!*\n\n"
-        "Считай калории без ограничений 🍽️\n"
-        "Отправь фото или напиши что поел ↓",
+        t(lang, "payment_success", label=label),
         parse_mode="Markdown",
-        reply_markup=_main_keyboard(),
+        reply_markup=_main_keyboard(lang),
     )
 
 
@@ -1983,12 +1916,12 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
         today = now.strftime("%Y-%m-%d")
 
         meals_to_check = [
-            ("breakfast", user["breakfast_enabled"], user["breakfast_time"], "☕", "завтрак"),
-            ("lunch",     user["lunch_enabled"],     user["lunch_time"],     "🍲", "обед"),
-            ("dinner",    user["dinner_enabled"],     user["dinner_time"],    "🍽️", "ужин"),
+            ("breakfast", user["breakfast_enabled"], user["breakfast_time"], "☕"),
+            ("lunch",     user["lunch_enabled"],     user["lunch_time"],     "🍲"),
+            ("dinner",    user["dinner_enabled"],     user["dinner_time"],    "🍽️"),
         ]
 
-        for meal_type, enabled, meal_time, emoji, name in meals_to_check:
+        for meal_type, enabled, meal_time, emoji in meals_to_check:
             if not enabled or meal_time != current_time:
                 continue
             key = f"{user['user_id']}:{meal_type}:{today}"
@@ -1996,6 +1929,10 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
                 continue
 
             try:
+                user_lang = db.get_user_language(user["user_id"])
+                if user_lang == "auto":
+                    user_lang = "ru"  # default for reminders
+                meal_name = t(user_lang, f"meal_name_{meal_type}")
                 meals = db.get_meals_for_day(user["user_id"], today)
                 total_cal = sum(m["calories"] for m in meals)
                 goal = db.get_goal(user["user_id"])
@@ -2009,14 +1946,12 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
 
                 await context.bot.send_message(
                     chat_id=user["user_id"],
-                    text=(
-                        f"{emoji} Не забудь рассказать мне что съел на {name}!\n"
-                        f"Цель: {goal_cal} ккал. За сегодня: {total_cal} ккал\n\n"
-                        f"📸 Просто отправь фото или напиши текстом"
-                    ),
+                    text=t(user_lang, "reminder_text",
+                           emoji=emoji, meal=meal_name,
+                           goal_cal=goal_cal, total_cal=total_cal),
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton(f"🍽️ Добавить еду", callback_data="quick_add")],
-                        [InlineKeyboardButton(f"❌ Не напоминать про {name}", callback_data=f"notif_snooze_{meal_type}")],
+                        [InlineKeyboardButton(t(user_lang, "btn_reminder_add"), callback_data="quick_add")],
+                        [InlineKeyboardButton(t(user_lang, "btn_reminder_snooze", meal=meal_name), callback_data=f"notif_snooze_{meal_type}")],
                     ]),
                 )
                 sent_reminders.add(key)
@@ -2033,14 +1968,12 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
             if now.strftime("%H:%M") != "09:00":
                 continue
             try:
+                user_lang = db.get_user_language(user["user_id"])
+                if user_lang == "auto":
+                    user_lang = "ru"
                 await context.bot.send_message(
                     chat_id=user["user_id"],
-                    text=(
-                        "⚖️ *Совет: следи за весом*\n\n"
-                        "Ты можешь записывать свой вес каждое утро — бот покажет динамику и прогресс к цели.\n\n"
-                        "Просто напиши команду /weight и введи текущий вес.\n"
-                        "График прогресса: /progress"
-                    ),
+                    text=t(user_lang, "weight_tip"),
                     parse_mode="Markdown",
                 )
                 db.mark_weight_tip_sent(user["user_id"])
@@ -2064,6 +1997,7 @@ def main():
             BotCommand("progress", "📈 Динамика веса"),
             BotCommand("notify",   "🔔 Напоминания"),
             BotCommand("subscribe","💳 Подписка"),
+            BotCommand("language", "🌍 Язык / Language"),
             BotCommand("reset",    "🗑 Сбросить сегодня"),
             BotCommand("delete",   "❌ Удалить запись"),
             BotCommand("edit",     "✏️ Исправить запись"),
@@ -2090,6 +2024,7 @@ def main():
     app.add_handler(CommandHandler("notify", notify_command))
     app.add_handler(CommandHandler("subscribe", subscribe_command))
     app.add_handler(CommandHandler("support", support_command))
+    app.add_handler(CommandHandler("language", language_command))
     app.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))

@@ -5,6 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY bot.py database.py ./
+COPY bot.py database.py i18n.py ./
+COPY locales/ ./locales/
 
 CMD ["python", "bot.py"]
