@@ -1357,10 +1357,16 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = _lang(user_id, update.effective_user.language_code)
     await update.message.reply_text(
         t(lang, "choose_language"),
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton(t(lang, "btn_lang_ru"), callback_data="set_lang:ru"),
-            InlineKeyboardButton(t(lang, "btn_lang_en"), callback_data="set_lang:en"),
-        ]])
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(t(lang, "btn_lang_ru"), callback_data="set_lang:ru"),
+                InlineKeyboardButton(t(lang, "btn_lang_en"), callback_data="set_lang:en"),
+            ],
+            [
+                InlineKeyboardButton(t(lang, "btn_lang_de"), callback_data="set_lang:de"),
+                InlineKeyboardButton(t(lang, "btn_lang_pl"), callback_data="set_lang:pl"),
+            ],
+        ])
     )
 
 
@@ -1375,18 +1381,29 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("set_lang:"):
         chosen = data.split(":")[1]
         db.set_user_language(user_id, chosen)
-        key = "language_changed_ru" if chosen == "ru" else "language_changed_en"
-        await query.edit_message_text(t(chosen, key))
+        confirm_key = {
+            "ru": "language_changed_ru",
+            "en": "language_changed_en",
+            "de": "language_changed_de",
+            "pl": "language_changed_pl",
+        }.get(chosen, "language_changed_en")
+        await query.edit_message_text(t(chosen, confirm_key))
         return
 
     elif data == "open_language":
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
             t(lang, "choose_language"),
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton(t(lang, "btn_lang_ru"), callback_data="set_lang:ru"),
-                InlineKeyboardButton(t(lang, "btn_lang_en"), callback_data="set_lang:en"),
-            ]])
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(t(lang, "btn_lang_ru"), callback_data="set_lang:ru"),
+                    InlineKeyboardButton(t(lang, "btn_lang_en"), callback_data="set_lang:en"),
+                ],
+                [
+                    InlineKeyboardButton(t(lang, "btn_lang_de"), callback_data="set_lang:de"),
+                    InlineKeyboardButton(t(lang, "btn_lang_pl"), callback_data="set_lang:pl"),
+                ],
+            ])
         )
         return
 

@@ -2,8 +2,14 @@ from locales import SUPPORTED, DEFAULT_LANG
 
 
 def detect_lang(language_code: str | None) -> str:
-    if language_code and language_code.startswith("ru"):
+    if not language_code:
+        return DEFAULT_LANG
+    if language_code.startswith("ru"):
         return "ru"
+    if language_code.startswith("de"):
+        return "de"
+    if language_code.startswith("pl"):
+        return "pl"
     return DEFAULT_LANG
 
 
