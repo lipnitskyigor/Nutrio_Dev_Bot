@@ -63,7 +63,7 @@ texts = {
     ),
 
     # ── Support ───────────────────────────────────────────────────
-    "support_text": "💬 *Soporte Meal Scan*\n\n¿Preguntas o problemas? Escríbenos:\n\n👉 @MealScanSupport",
+    "support_text": "💬 *Soporte Meal Scan*\n\n¿Preguntas o problemas? Escríbenos:\n\n👉 @Meal_Scan_Support",
 
     # ── Today ─────────────────────────────────────────────────────
     "today_empty": "📭 Sin comidas registradas hoy.\n¡Envía una foto para empezar a contar!",
