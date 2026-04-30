@@ -31,8 +31,8 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 ADMIN_ID = 148160233
 
-PRICE_1M = 99    # Telegram Stars
-PRICE_3M = 249   # Telegram Stars
+PRICE_1M = 150   # Telegram Stars (~$2)
+PRICE_3M = 375   # Telegram Stars (~$5)
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
