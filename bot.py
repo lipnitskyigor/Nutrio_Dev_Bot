@@ -2199,10 +2199,13 @@ def main():
 
         # ── 1. Команды по языкам ──────────────────────────────────────
 
-        for lang_code, commands in COMMANDS_BY_LANG.items():
-            await bot.set_my_commands(commands, language_code=lang_code)
-
-        await bot.set_my_commands(COMMANDS_BY_LANG["en"])
+        try:
+            for lang_code, commands in COMMANDS_BY_LANG.items():
+                await bot.set_my_commands(commands, language_code=lang_code)
+                await asyncio.sleep(0.5)
+            await bot.set_my_commands(COMMANDS_BY_LANG["en"])
+        except Exception as e:
+            logger.warning(f"set_my_commands failed (non-fatal): {e}")
 
         # ── 2. Короткое описание (about, до 120 символов) ─────────────
 
