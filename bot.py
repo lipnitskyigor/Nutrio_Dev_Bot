@@ -214,7 +214,7 @@ def analyze_food_text(text: str, lang: str = "ru") -> dict:
     """Send food description to Claude and get calorie analysis."""
     claude_lang = t(lang, "claude_lang")
     response = claude.messages.create(
-        model="claude-opus-4-5",
+        model="claude-sonnet-4-6",
         max_tokens=1024,
         messages=[
             {
@@ -251,7 +251,7 @@ def analyze_food_correction(original_description: str, correction: str, lang: st
     """Re-analyze a meal with user's correction applied, keeping unchanged items intact."""
     claude_lang = t(lang, "claude_lang")
     response = claude.messages.create(
-        model="claude-opus-4-5",
+        model="claude-sonnet-4-6",
         max_tokens=1024,
         messages=[
             {
@@ -294,7 +294,7 @@ def analyze_food_image(image_bytes: bytes, caption: str = None, lang: str = "ru"
     caption_hint = f'\nThe user also wrote: "{caption}"' if caption else ""
 
     response = claude.messages.create(
-        model="claude-opus-4-5",
+        model="claude-sonnet-4-6",
         max_tokens=1024,
         messages=[
             {
