@@ -999,12 +999,38 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         today = date.today().isoformat()
         now_time = datetime.now().strftime("%H:%M")
-        meal_id = db.add_meal(
-            user_id=user_id, day=today, time=now_time,
-            food_description=result["food_description"],
-            calories=result["calories"], protein=result["protein"],
-            fat=result["fat"], carbs=result["carbs"],
-        )
+
+        editing_meal_id = context.user_data.get("editing_meal_id")
+        if editing_meal_id:
+            updated = db.update_meal_by_id(
+                meal_id=editing_meal_id, user_id=user_id,
+                food_description=result["food_description"],
+                calories=result["calories"], protein=result["protein"],
+                fat=result["fat"], carbs=result["carbs"],
+            )
+            if updated:
+                meal_id = editing_meal_id
+                context.user_data.pop("editing_meal_id", None)
+                context.user_data.pop("editing_meal_description", None)
+                summary_prefix = t(lang, "corrected_prefix")
+            else:
+                meal_id = db.add_meal(
+                    user_id=user_id, day=today, time=now_time,
+                    food_description=result["food_description"],
+                    calories=result["calories"], protein=result["protein"],
+                    fat=result["fat"], carbs=result["carbs"],
+                )
+                context.user_data.pop("editing_meal_id", None)
+                context.user_data.pop("editing_meal_description", None)
+                summary_prefix = ""
+        else:
+            meal_id = db.add_meal(
+                user_id=user_id, day=today, time=now_time,
+                food_description=result["food_description"],
+                calories=result["calories"], protein=result["protein"],
+                fat=result["fat"], carbs=result["carbs"],
+            )
+            summary_prefix = ""
 
         meals = db.get_meals_for_day(user_id, today)
         total_cal = sum(m["calories"] for m in meals)
@@ -1013,7 +1039,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         profile = db.get_profile(user_id)
 
         await msg.edit_text(
-            _meal_summary(result, total_cal, total_protein, len(meals), goal, profile, lang),
+            summary_prefix + _meal_summary(result, total_cal, total_protein, len(meals), goal, profile, lang),
             parse_mode="Markdown",
             reply_markup=_meal_keyboard(meal_id, lang),
         )
@@ -1255,13 +1281,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Режим исправления — пользователь нажал "Исправить" ───────
     if "editing_meal_id" in context.user_data:
-        meal_id = context.user_data.pop("editing_meal_id")
-        msg = await update.message.reply_text(t(lang, "recalculating"))
-        try:
+        meal_id = context.user_data["editing_meal_id"]
+        original_description = context.user_data.get("editing_meal_description") or ""
+        if not original_description:
             original_meal = db.get_meal_by_id(meal_id, user_id)
             if original_meal:
+                original_description = original_meal["food_description"]
+        msg = await update.message.reply_text(t(lang, "recalculating"))
+        try:
+            if original_description:
                 result = await asyncio.get_running_loop().run_in_executor(
-                    None, analyze_food_correction, original_meal["food_description"], text, lang
+                    None, analyze_food_correction, original_description, text, lang
                 )
             else:
                 result = await asyncio.get_running_loop().run_in_executor(
@@ -1278,6 +1308,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 fat=result["fat"], carbs=result["carbs"],
             )
 
+            # Успех — чистим стейт редактирования
+            context.user_data.pop("editing_meal_id", None)
+            context.user_data.pop("editing_meal_description", None)
+
             today = date.today().isoformat()
             meals = db.get_meals_for_day(user_id, today)
             total_cal = sum(m["calories"] for m in meals)
@@ -1293,6 +1327,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Error in editing flow: {e}")
             await msg.edit_text(t(lang, "correction_error"))
+            # Не чистим стейт — пользователь может попробовать снова
         return
 
     # ── Обработка состояния изменения таймзоны через /notify ──────
@@ -1668,7 +1703,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("edit_"):
         meal_id = int(data.split("_")[1])
+        original_meal = db.get_meal_by_id(meal_id, user_id)
         context.user_data["editing_meal_id"] = meal_id
+        context.user_data["editing_meal_description"] = original_meal["food_description"] if original_meal else ""
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(t(lang, "edit_prompt"))
 

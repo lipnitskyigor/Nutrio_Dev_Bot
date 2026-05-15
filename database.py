@@ -190,7 +190,7 @@ class Database:
             conn.commit()
 
     def update_meal_by_id(self, meal_id: int, user_id: int, food_description: str,
-                          calories: int, protein: int, fat: int, carbs: int):
+                          calories: int, protein: int, fat: int, carbs: int) -> bool:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -198,7 +198,9 @@ class Database:
                     SET food_description = %s, calories = %s, protein = %s, fat = %s, carbs = %s
                     WHERE id = %s AND user_id = %s
                 """, (food_description, calories, protein, fat, carbs, meal_id, user_id))
+                updated = cur.rowcount > 0
             conn.commit()
+        return updated
 
     def get_weekly_summary(self, user_id: int) -> List[Dict[str, Any]]:
         with self._conn() as conn:
