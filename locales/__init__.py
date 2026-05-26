@@ -1,4 +1,4 @@
-from locales import ru, en, uk, be, de, pl, es, pt, ar
+from locales import ru, en, uk, be, de, pl, es, pt, ar, kk
 
 SUPPORTED = {
     "ru": ru.texts,
@@ -10,5 +10,6 @@ SUPPORTED = {
     "es": es.texts,
     "pt": pt.texts,
     "ar": ar.texts,
+    "kk": kk.texts,
 }
 DEFAULT_LANG = "en"

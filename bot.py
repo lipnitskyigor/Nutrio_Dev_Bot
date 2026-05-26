@@ -34,6 +34,9 @@ ADMIN_ID = 148160233
 
 PRICE_1M = 100   # Telegram Stars (~$2)
 PRICE_3M = 250   # Telegram Stars (~$5)
+PRICE_1M_USD = 200   # cents ($2.00) — Stripe
+PRICE_3M_USD = 500   # cents ($5.00) — Stripe
+STRIPE_PROVIDER_TOKEN = os.environ.get("STRIPE_PROVIDER_TOKEN", "")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -194,6 +197,23 @@ COMMANDS_BY_LANG = {
         BotCommand("edit",      "✏️ تعديل إدخال"),
         BotCommand("help",      "❓ المساعدة"),
         BotCommand("support",   "💬 الدعم"),
+    ],
+    "kk": [
+        BotCommand("start",     "🏠 Басты мәзір"),
+        BotCommand("today",     "📊 Бүгінгі қорытынды"),
+        BotCommand("history",   "📅 7 күндік тарих"),
+        BotCommand("goal",      "🎯 Күндік мақсат"),
+        BotCommand("weight",    "⚖️ Салмақты жазу"),
+        BotCommand("target",    "🏁 Мақсатты салмақ"),
+        BotCommand("progress",  "📈 Салмақ динамикасы"),
+        BotCommand("notify",    "🔔 Еске салулар"),
+        BotCommand("language",  "🌍 Тіл / Language"),
+        BotCommand("subscribe", "💳 Жазылым"),
+        BotCommand("reset",     "🗑 Бүгінді тазалау"),
+        BotCommand("delete",    "❌ Жазбаны жою"),
+        BotCommand("edit",      "✏️ Жазбаны өзгерту"),
+        BotCommand("help",      "❓ Көмек"),
+        BotCommand("support",   "💬 Қолдау"),
     ],
 }
 
@@ -498,10 +518,16 @@ def _terms_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
 
 
 def _subscribe_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"1 месяц — {PRICE_1M} ⭐", callback_data="sub_1m"),
-        InlineKeyboardButton(f"3 месяца — {PRICE_3M} ⭐", callback_data="sub_3m"),
-    ]])
+    rows = [[
+        InlineKeyboardButton(f"1 мес — {PRICE_1M} ⭐", callback_data="sub_1m"),
+        InlineKeyboardButton(f"3 мес — {PRICE_3M} ⭐", callback_data="sub_3m"),
+    ]]
+    if STRIPE_PROVIDER_TOKEN:
+        rows.append([
+            InlineKeyboardButton("1 мес — $2 💳", callback_data="stripe_1m"),
+            InlineKeyboardButton("3 мес — $5 💳", callback_data="stripe_3m"),
+        ])
+    return InlineKeyboardMarkup(rows)
 
 
 def _paywall_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
@@ -1568,6 +1594,7 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ],
             [
                 InlineKeyboardButton(t(lang, "btn_lang_ar"), callback_data="set_lang:ar"),
+                InlineKeyboardButton(t(lang, "btn_lang_kk"), callback_data="set_lang:kk"),
             ],
         ])
     )
@@ -1594,6 +1621,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "es": "language_changed_es",
             "pt": "language_changed_pt",
             "ar": "language_changed_ar",
+            "kk": "language_changed_kk",
         }.get(chosen, "language_changed_en")
         commands = COMMANDS_BY_LANG.get(chosen, COMMANDS_BY_LANG["en"])
         await context.bot.set_my_commands(
@@ -1899,6 +1927,28 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"send_invoice error: {e}")
             await query.message.reply_text(t(lang, "sub_invoice_error", e=e))
 
+    elif data in ("stripe_1m", "stripe_3m"):
+        if not STRIPE_PROVIDER_TOKEN:
+            await query.answer("Оплата картой временно недоступна", show_alert=True)
+            return
+        months = 3 if data == "stripe_3m" else 1
+        price_cents = PRICE_3M_USD if months == 3 else PRICE_1M_USD
+        title_key = "sub_invoice_title_3m" if months == 3 else "sub_invoice_title_1m"
+        title = t(lang, title_key)
+        try:
+            await context.bot.send_invoice(
+                chat_id=query.message.chat_id,
+                title=title,
+                description=t(lang, "sub_invoice_desc"),
+                payload=data,
+                provider_token=STRIPE_PROVIDER_TOKEN,
+                currency="USD",
+                prices=[LabeledPrice(title, price_cents)],
+            )
+        except Exception as e:
+            logger.error(f"stripe send_invoice error: {e}")
+            await query.message.reply_text(t(lang, "sub_invoice_error", e=e))
+
     elif data == "quick_add":
         await query.answer()
         await query.message.reply_text(t(lang, "quick_add_prompt"))
@@ -2135,7 +2185,7 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
     user_id = update.effective_user.id
     lang = _lang(user_id, update.effective_user.language_code)
     payload = update.message.successful_payment.invoice_payload
-    months = 3 if payload == "sub_3m" else 1
+    months = 3 if payload in ("sub_3m", "stripe_3m") else 1
     db.activate_subscription(user_id, months)
     label = t(lang, "sub_3m_label") if months == 3 else t(lang, "sub_1m_label")
     await update.message.reply_text(
