@@ -2410,14 +2410,17 @@ def main():
             ),
         }
 
-        for lang_code, text in short_descriptions.items():
-            await bot.set_my_short_description(text, language_code=lang_code)
+        try:
+            for lang_code, text in short_descriptions.items():
+                await bot.set_my_short_description(text, language_code=lang_code)
 
-        for lang_code, text in full_descriptions.items():
-            await bot.set_my_description(text, language_code=lang_code)
+            for lang_code, text in full_descriptions.items():
+                await bot.set_my_description(text, language_code=lang_code)
 
-        await bot.set_my_short_description(short_descriptions["en"])
-        await bot.set_my_description(full_descriptions["en"])
+            await bot.set_my_short_description(short_descriptions["en"])
+            await bot.set_my_description(full_descriptions["en"])
+        except Exception as e:
+            logger.warning(f"set_my_description failed (non-fatal): {e}")
 
     app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
 
