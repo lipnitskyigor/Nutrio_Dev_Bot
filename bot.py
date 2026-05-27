@@ -1681,6 +1681,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton(t(lang, "btn_lang_ar"), callback_data="set_lang:ar"),
                     InlineKeyboardButton(t(lang, "btn_lang_kk"), callback_data="set_lang:kk"),
                 ],
+                [
+                    InlineKeyboardButton(t(lang, "btn_lang_hi"), callback_data="set_lang:hi"),
+                ],
             ])
         )
         return
