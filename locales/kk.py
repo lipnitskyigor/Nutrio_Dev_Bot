@@ -18,6 +18,7 @@ texts = {
     "language_changed_pt": "✅ Тіл португал тіліне өзгертілді 🇧🇷",
     "language_changed_ar": "✅ Тіл арабша өзгертілді 🇸🇦",
     "language_changed_kk": "✅ Тіл қазақшаға өзгертілді 🇰🇿",
+    "language_changed_hi": "✅ भाषा हिंदी में बदली गई 🇮🇳",
     "btn_lang_ru": "🇷🇺 Орысша",
     "btn_lang_en": "🇬🇧 English",
     "btn_lang_uk": "🇺🇦 Украинша",
@@ -28,6 +29,7 @@ texts = {
     "btn_lang_pt": "🇧🇷 Português",
     "btn_lang_ar": "🇸🇦 العربية",
     "btn_lang_kk": "🇰🇿 Қазақша",
+    "btn_lang_hi": "🇮🇳 हिंदी",
 
     # ── Claude API instruction ────────────────────────────────────
     "claude_lang": "қазақ тілінде",

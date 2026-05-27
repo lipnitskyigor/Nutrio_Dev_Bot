@@ -215,6 +215,23 @@ COMMANDS_BY_LANG = {
         BotCommand("help",      "❓ Көмек"),
         BotCommand("support",   "💬 Қолдау"),
     ],
+    "hi": [
+        BotCommand("start",     "🏠 मुख्य मेनू"),
+        BotCommand("today",     "📊 आज का कुल"),
+        BotCommand("history",   "📅 7 दिन का इतिहास"),
+        BotCommand("goal",      "🎯 दैनिक लक्ष्य"),
+        BotCommand("weight",    "⚖️ वज़न दर्ज करें"),
+        BotCommand("target",    "🏁 लक्ष्य वज़न"),
+        BotCommand("progress",  "📈 वज़न की प्रगति"),
+        BotCommand("notify",    "🔔 रिमाइंडर"),
+        BotCommand("language",  "🌍 भाषा / Language"),
+        BotCommand("subscribe", "💳 सदस्यता"),
+        BotCommand("reset",     "🗑 आज साफ़ करें"),
+        BotCommand("delete",    "❌ एंट्री हटाएं"),
+        BotCommand("edit",      "✏️ एंट्री संपादित करें"),
+        BotCommand("help",      "❓ सहायता"),
+        BotCommand("support",   "💬 समर्थन"),
+    ],
 }
 
 
@@ -1596,6 +1613,9 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton(t(lang, "btn_lang_ar"), callback_data="set_lang:ar"),
                 InlineKeyboardButton(t(lang, "btn_lang_kk"), callback_data="set_lang:kk"),
             ],
+            [
+                InlineKeyboardButton(t(lang, "btn_lang_hi"), callback_data="set_lang:hi"),
+            ],
         ])
     )
 
@@ -1622,6 +1642,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "pt": "language_changed_pt",
             "ar": "language_changed_ar",
             "kk": "language_changed_kk",
+            "hi": "language_changed_hi",
         }.get(chosen, "language_changed_en")
         commands = COMMANDS_BY_LANG.get(chosen, COMMANDS_BY_LANG["en"])
         await context.bot.set_my_commands(

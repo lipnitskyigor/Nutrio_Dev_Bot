@@ -22,6 +22,8 @@ def detect_lang(language_code: str | None) -> str:
         return "ar"
     if language_code.startswith("kk"):
         return "kk"
+    if language_code.startswith("hi"):
+        return "hi"
     return DEFAULT_LANG
 
 
