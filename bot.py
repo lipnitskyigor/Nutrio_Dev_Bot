@@ -3,8 +3,11 @@ import json
 import base64
 import logging
 import asyncio
+import threading
+import queue
 from datetime import datetime, date
 from io import BytesIO
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import anthropic
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice, BotCommand
@@ -37,6 +40,18 @@ PRICE_3M = 250   # Telegram Stars (~$5)
 PRICE_1M_USD = 200   # cents ($2.00) — Stripe
 PRICE_3M_USD = 500   # cents ($5.00) — Stripe
 STRIPE_PROVIDER_TOKEN = os.environ.get("STRIPE_PROVIDER_TOKEN", "")
+
+# Stripe Checkout (новая интеграция)
+STRIPE_SECRET_KEY      = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET  = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+BOT_USERNAME           = os.environ.get("BOT_USERNAME", "mealscanbot")
+
+import stripe as stripe_lib
+if STRIPE_SECRET_KEY:
+    stripe_lib.api_key = STRIPE_SECRET_KEY
+
+# Очередь подтверждений — webhook thread → job queue
+_payment_queue: queue.Queue = queue.Queue()
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -539,7 +554,7 @@ def _subscribe_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(f"1 мес — {PRICE_1M} ⭐", callback_data="sub_1m"),
         InlineKeyboardButton(f"3 мес — {PRICE_3M} ⭐", callback_data="sub_3m"),
     ]]
-    if STRIPE_PROVIDER_TOKEN:
+    if STRIPE_SECRET_KEY:
         rows.append([
             InlineKeyboardButton("1 мес — $2 💳", callback_data="stripe_1m"),
             InlineKeyboardButton("3 мес — $5 💳", callback_data="stripe_3m"),
@@ -1953,25 +1968,51 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(t(lang, "sub_invoice_error", e=e))
 
     elif data in ("stripe_1m", "stripe_3m"):
-        if not STRIPE_PROVIDER_TOKEN:
-            await query.answer("Оплата картой временно недоступна", show_alert=True)
+        if not STRIPE_SECRET_KEY:
+            await query.answer("Card payment temporarily unavailable", show_alert=True)
             return
         months = 3 if data == "stripe_3m" else 1
         price_cents = PRICE_3M_USD if months == 3 else PRICE_1M_USD
         title_key = "sub_invoice_title_3m" if months == 3 else "sub_invoice_title_1m"
-        title = t(lang, title_key)
+        price_label = "$5" if months == 3 else "$2"
         try:
-            await context.bot.send_invoice(
-                chat_id=query.message.chat_id,
-                title=title,
-                description=t(lang, "sub_invoice_desc"),
-                payload=data,
-                provider_token=STRIPE_PROVIDER_TOKEN,
-                currency="USD",
-                prices=[LabeledPrice(title, price_cents)],
+            loop = asyncio.get_event_loop()
+            session = await loop.run_in_executor(
+                None,
+                lambda: stripe_lib.checkout.Session.create(
+                    payment_method_types=["card"],
+                    line_items=[{
+                        "price_data": {
+                            "currency": "usd",
+                            "product_data": {
+                                "name": t(lang, title_key),
+                                "description": t(lang, "sub_invoice_desc"),
+                            },
+                            "unit_amount": price_cents,
+                        },
+                        "quantity": 1,
+                    }],
+                    mode="payment",
+                    success_url=f"https://t.me/{BOT_USERNAME}",
+                    cancel_url=f"https://t.me/{BOT_USERNAME}",
+                    metadata={
+                        "user_id": str(user_id),
+                        "months": str(months),
+                        "lang": lang,
+                    },
+                    client_reference_id=str(user_id),
+                )
+            )
+            await query.message.reply_text(
+                f"💳 *{t(lang, title_key)}*\n\n"
+                f"👇 Tap to pay securely via Stripe:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(f"💳 Pay {price_label}", url=session.url)
+                ]])
             )
         except Exception as e:
-            logger.error(f"stripe send_invoice error: {e}")
+            logger.error(f"Stripe checkout error: {e}")
             await query.message.reply_text(t(lang, "sub_invoice_error", e=e))
 
     elif data == "quick_add":
@@ -2305,6 +2346,91 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Weight tip job error: {e}")
 
 
+# ── Stripe webhook HTTP server ────────────────────────────────────────────────
+
+class _StripeWebhookHandler(BaseHTTPRequestHandler):
+    """Простой HTTP-обработчик для Stripe webhook-ов."""
+
+    def do_POST(self):
+        if self.path != "/stripe/webhook":
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        content_length = int(self.headers.get("Content-Length", 0))
+        payload = self.rfile.read(content_length)
+        sig_header = self.headers.get("Stripe-Signature", "")
+
+        try:
+            event = stripe_lib.Webhook.construct_event(
+                payload, sig_header, STRIPE_WEBHOOK_SECRET
+            )
+        except Exception as e:
+            logger.error(f"Stripe webhook verification failed: {e}")
+            self.send_response(400)
+            self.end_headers()
+            return
+
+        if event["type"] == "checkout.session.completed":
+            session = event["data"]["object"]
+            meta = session.get("metadata") or {}
+            user_id_str = meta.get("user_id")
+            months_str  = meta.get("months", "1")
+            lang        = meta.get("lang", "en")
+
+            if user_id_str:
+                try:
+                    user_id = int(user_id_str)
+                    months  = int(months_str)
+                    db.activate_subscription(user_id, months)
+                    _payment_queue.put({"user_id": user_id, "months": months, "lang": lang})
+                    logger.info(f"Stripe payment OK: user={user_id} months={months}")
+                except Exception as e:
+                    logger.error(f"Error processing Stripe payment: {e}")
+
+        self.send_response(200)
+        self.end_headers()
+
+    def log_message(self, fmt, *args):  # заглушаем стандартные логи httpd
+        pass
+
+
+def _start_stripe_webhook_server():
+    port = int(os.environ.get("PORT", 8080))
+    try:
+        server = HTTPServer(("0.0.0.0", port), _StripeWebhookHandler)
+        logger.info(f"Stripe webhook server listening on port {port}")
+        server.serve_forever()
+    except Exception as e:
+        logger.error(f"Webhook server startup failed: {e}")
+
+
+async def process_stripe_payments(context: ContextTypes.DEFAULT_TYPE):
+    """Job: каждые 5 секунд рассылает подтверждения после Stripe-оплаты."""
+    while not _payment_queue.empty():
+        try:
+            item = _payment_queue.get_nowait()
+        except queue.Empty:
+            break
+
+        user_id = item["user_id"]
+        months  = item["months"]
+        lang    = item["lang"]
+        label   = t(lang, "sub_3m_label") if months == 3 else t(lang, "sub_1m_label")
+
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=t(lang, "payment_success", label=label),
+                parse_mode="Markdown",
+                reply_markup=_main_keyboard(lang),
+            )
+        except Exception as e:
+            logger.error(f"Failed to send Stripe confirmation to {user_id}: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 def main():
     async def post_init(application):
         bot = application.bot
@@ -2450,6 +2576,16 @@ def main():
 
     # Напоминания — проверка каждую минуту
     app.job_queue.run_repeating(send_reminders, interval=60, first=5)
+
+    # Stripe: подтверждения оплаты — каждые 5 секунд
+    app.job_queue.run_repeating(process_stripe_payments, interval=5, first=5)
+
+    # Stripe webhook сервер — отдельный поток (нужен PORT и STRIPE_WEBHOOK_SECRET)
+    if STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET:
+        wh_thread = threading.Thread(target=_start_stripe_webhook_server, daemon=True)
+        wh_thread.start()
+    elif STRIPE_SECRET_KEY:
+        logger.warning("STRIPE_WEBHOOK_SECRET not set — webhook server not started")
 
     logger.info("Bot started!")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
