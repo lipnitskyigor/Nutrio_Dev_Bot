@@ -112,6 +112,8 @@ class Database:
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS target_confirmed_at TIMESTAMP",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS weight_tip_sent INTEGER NOT NULL DEFAULT 0",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'auto'",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS photo_analyses INTEGER NOT NULL DEFAULT 0",
                 ]:
                     cur.execute(col_def)
             conn.commit()
@@ -448,7 +450,16 @@ class Database:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE subscriptions SET free_analyses_used = free_analyses_used + 1 WHERE user_id = %s",
+                    "UPDATE subscriptions SET free_analyses_used = free_analyses_used + 1, photo_analyses = photo_analyses + 1 WHERE user_id = %s",
+                    (user_id,)
+                )
+            conn.commit()
+
+    def increment_photo_analyses(self, user_id: int):
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE subscriptions SET photo_analyses = photo_analyses + 1 WHERE user_id = %s",
                     (user_id,)
                 )
             conn.commit()
@@ -515,7 +526,60 @@ class Database:
                     (now, FREE_ANALYSES_LIMIT)
                 )
                 expired = cur.fetchone()[0]
-        return {"total": total, "paid": paid, "on_trial": on_trial, "expired": expired}
+
+                # Новые за сегодня
+                cur.execute(
+                    "SELECT COUNT(*) FROM users WHERE first_seen_at >= CURRENT_DATE"
+                )
+                new_today = cur.fetchone()[0]
+
+                # Новые за 7 дней
+                cur.execute(
+                    "SELECT COUNT(*) FROM users WHERE first_seen_at >= CURRENT_DATE - INTERVAL '7 days'"
+                )
+                new_7d = cur.fetchone()[0]
+
+                # Всего пользователей (принявших условия)
+                cur.execute("SELECT COUNT(*) FROM users WHERE terms_accepted = 1")
+                total_users = cur.fetchone()[0]
+
+                # Активных вчера (для retention)
+                cur.execute(
+                    "SELECT COUNT(DISTINCT user_id) FROM meals "
+                    "WHERE day = (CURRENT_DATE - INTERVAL '1 day')::TEXT"
+                )
+                active_yesterday = cur.fetchone()[0]
+
+                # Активных сегодня
+                cur.execute(
+                    "SELECT COUNT(DISTINCT user_id) FROM meals WHERE day = CURRENT_DATE::TEXT"
+                )
+                active_today = cur.fetchone()[0]
+
+                # Всего анализов фото
+                cur.execute("SELECT COALESCE(SUM(photo_analyses), 0) FROM subscriptions")
+                total_photos = cur.fetchone()[0]
+
+                # Топ языков
+                cur.execute(
+                    "SELECT COALESCE(language, 'auto'), COUNT(*) FROM users "
+                    "GROUP BY language ORDER BY COUNT(*) DESC LIMIT 5"
+                )
+                top_langs = cur.fetchall()
+
+        return {
+            "total": total,
+            "paid": paid,
+            "on_trial": on_trial,
+            "expired": expired,
+            "new_today": new_today,
+            "new_7d": new_7d,
+            "total_users": total_users,
+            "active_today": active_today,
+            "active_yesterday": active_yesterday,
+            "total_photos": total_photos,
+            "top_langs": top_langs,
+        }
 
     def get_user_language(self, user_id: int) -> str:
         with self._conn() as conn:

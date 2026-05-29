@@ -1505,6 +1505,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="Markdown",
                     reply_markup=_paywall_keyboard(lang) if left == 0 else None,
                 )
+        else:
+            db.increment_photo_analyses(user_id)
         await _maybe_send_profile_prompt(update.message, user_id, context, lang)
 
     except json.JSONDecodeError:
@@ -2191,19 +2193,42 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(DISTINCT user_id) FROM meals WHERE day >= (CURRENT_DATE - INTERVAL '7 days')::TEXT")
             active_7d = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(DISTINCT user_id) FROM meals WHERE day >= (CURRENT_DATE - INTERVAL '30 days')::TEXT")
+            active_30d = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM meals")
             total_meals = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM meals WHERE created_at >= CURRENT_DATE")
+            meals_today = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM profiles")
+            profiles_count = cur.fetchone()[0]
 
     stats = db.get_subscription_stats()
 
+    langs_text = ""
+    for lang, count in stats.get("top_langs", []):
+        langs_text += f"  {lang}: {count}\n"
+
     await update.message.reply_text(
         f"📊 *Статистика Meal Scan*\n\n"
-        f"👥 Всего пользователей: *{stats['total']}*\n"
-        f"🔥 Активных за 7 дней: *{active_7d}*\n"
-        f"🎁 На пробном периоде: *{stats['on_trial']}*\n"
-        f"💳 Платных подписчиков: *{stats['paid']}*\n"
-        f"💤 Пробный истёк: *{stats['expired']}*\n\n"
-        f"🍽️ Всего записей о еде: *{total_meals}*",
+        f"👥 *Пользователи*\n"
+        f"  Всего зарегистрировано: *{stats['total_users']}*\n"
+        f"  Новых сегодня: *{stats['new_today']}*\n"
+        f"  Новых за 7 дней: *{stats['new_7d']}*\n\n"
+        f"🔥 *Активность*\n"
+        f"  Активных сегодня: *{stats['active_today']}*\n"
+        f"  Активных вчера: *{stats['active_yesterday']}*\n"
+        f"  Активных за 7 дней: *{active_7d}*\n"
+        f"  Активных за 30 дней: *{active_30d}*\n"
+        f"  Заполнили профиль: *{profiles_count}*\n\n"
+        f"💳 *Подписки*\n"
+        f"  Платных подписчиков: *{stats['paid']}*\n"
+        f"  На пробном периоде: *{stats['on_trial']}*\n"
+        f"  Пробный истёк: *{stats['expired']}*\n\n"
+        f"🍽️ *Еда и анализы*\n"
+        f"  Всего записей о еде: *{total_meals}*\n"
+        f"  Записей сегодня: *{meals_today}*\n"
+        f"  Всего анализов фото: *{stats['total_photos']}*\n\n"
+        f"🌍 *Топ языков*\n{langs_text}",
         parse_mode="Markdown"
     )
 
