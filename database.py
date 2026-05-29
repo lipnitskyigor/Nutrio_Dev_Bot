@@ -567,6 +567,82 @@ class Database:
                 )
                 top_langs = cur.fetchall()
 
+                # Retention: из зарегистрированных 7+ дней назад, сколько активны последние 7 дней
+                cur.execute("""
+                    SELECT COUNT(DISTINCT u.user_id)
+                    FROM users u
+                    WHERE u.first_seen_at < CURRENT_DATE - INTERVAL '7 days'
+                      AND EXISTS (
+                        SELECT 1 FROM meals m
+                        WHERE m.user_id = u.user_id
+                          AND m.day >= (CURRENT_DATE - INTERVAL '7 days')::TEXT
+                      )
+                """)
+                retained_7d = cur.fetchone()[0]
+
+                cur.execute("""
+                    SELECT COUNT(DISTINCT user_id) FROM users
+                    WHERE first_seen_at < CURRENT_DATE - INTERVAL '7 days'
+                """)
+                cohort_7d = cur.fetchone()[0]
+
+                # Пользователей с streak >= 3 дня подряд
+                cur.execute("""
+                    WITH user_days AS (
+                        SELECT user_id, day::date AS d
+                        FROM meals
+                        GROUP BY user_id, day::date
+                    ),
+                    streaks AS (
+                        SELECT user_id, d,
+                               d - ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY d)::int AS grp
+                        FROM user_days
+                    ),
+                    streak_lengths AS (
+                        SELECT user_id, COUNT(*) AS streak_len
+                        FROM streaks
+                        GROUP BY user_id, grp
+                    )
+                    SELECT COUNT(DISTINCT user_id) FROM streak_lengths WHERE streak_len >= 3
+                """)
+                users_with_streak_3 = cur.fetchone()[0]
+
+                # Среднее кол-во активных дней на пользователя
+                cur.execute("""
+                    SELECT ROUND(AVG(cnt)::numeric, 1)
+                    FROM (
+                        SELECT user_id, COUNT(DISTINCT day) AS cnt FROM meals GROUP BY user_id
+                    ) t
+                """)
+                avg_active_days = cur.fetchone()[0] or 0
+
+                # Пиковые часы активности (топ-3)
+                cur.execute("""
+                    SELECT EXTRACT(HOUR FROM created_at)::int AS hr, COUNT(*) AS cnt
+                    FROM meals
+                    GROUP BY hr ORDER BY cnt DESC LIMIT 3
+                """)
+                peak_hours = cur.fetchall()
+
+                # Среднее приёмов еды в день у активных пользователей
+                cur.execute("""
+                    SELECT ROUND(AVG(daily_meals)::numeric, 1)
+                    FROM (
+                        SELECT user_id, day, COUNT(*) AS daily_meals
+                        FROM meals GROUP BY user_id, day
+                    ) t
+                """)
+                avg_meals_per_day = cur.fetchone()[0] or 0
+
+                # Пользователей активных 3+ дней (зацепило)
+                cur.execute("""
+                    SELECT COUNT(*) FROM (
+                        SELECT user_id FROM meals
+                        GROUP BY user_id HAVING COUNT(DISTINCT day) >= 3
+                    ) t
+                """)
+                hooked_users = cur.fetchone()[0]
+
         return {
             "total": total,
             "paid": paid,
@@ -579,6 +655,13 @@ class Database:
             "active_yesterday": active_yesterday,
             "total_photos": total_photos,
             "top_langs": top_langs,
+            "retained_7d": retained_7d,
+            "cohort_7d": cohort_7d,
+            "users_with_streak_3": users_with_streak_3,
+            "avg_active_days": avg_active_days,
+            "peak_hours": peak_hours,
+            "avg_meals_per_day": avg_meals_per_day,
+            "hooked_users": hooked_users,
         }
 
     def get_user_language(self, user_id: int) -> str:

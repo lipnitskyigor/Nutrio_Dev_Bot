@@ -2208,26 +2208,46 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for lang, count in stats.get("top_langs", []):
         langs_text += f"  {lang}: {count}\n"
 
+    peak_text = ""
+    for hr, cnt in stats.get("peak_hours", []):
+        peak_text += f"  {hr:02d}:00 — {cnt} записей\n"
+
+    cohort = stats["cohort_7d"]
+    retained = stats["retained_7d"]
+    retention_pct = f"{round(retained / cohort * 100)}%" if cohort > 0 else "н/д"
+
+    total_users = stats["total_users"]
+    paid = stats["paid"]
+    conversion_pct = f"{round(paid / total_users * 100)}%" if total_users > 0 else "н/д"
+
     await update.message.reply_text(
         f"📊 *Статистика Meal Scan*\n\n"
         f"👥 *Пользователи*\n"
-        f"  Всего зарегистрировано: *{stats['total_users']}*\n"
+        f"  Всего: *{total_users}*\n"
         f"  Новых сегодня: *{stats['new_today']}*\n"
-        f"  Новых за 7 дней: *{stats['new_7d']}*\n\n"
+        f"  Новых за 7 дней: *{stats['new_7d']}*\n"
+        f"  Заполнили профиль: *{profiles_count}*\n\n"
         f"🔥 *Активность*\n"
         f"  Активных сегодня: *{stats['active_today']}*\n"
         f"  Активных вчера: *{stats['active_yesterday']}*\n"
         f"  Активных за 7 дней: *{active_7d}*\n"
         f"  Активных за 30 дней: *{active_30d}*\n"
-        f"  Заполнили профиль: *{profiles_count}*\n\n"
+        f"  Зацепило (3+ дня): *{stats['hooked_users']}*\n"
+        f"  Streak 3+ дня подряд: *{stats['users_with_streak_3']}*\n"
+        f"  Среднее активных дней: *{stats['avg_active_days']}*\n\n"
+        f"📈 *Retention*\n"
+        f"  7-дневный retention: *{retention_pct}*\n"
+        f"  Конверсия → платный: *{conversion_pct}*\n\n"
         f"💳 *Подписки*\n"
-        f"  Платных подписчиков: *{stats['paid']}*\n"
-        f"  На пробном периоде: *{stats['on_trial']}*\n"
+        f"  Платных: *{stats['paid']}*\n"
+        f"  На пробном: *{stats['on_trial']}*\n"
         f"  Пробный истёк: *{stats['expired']}*\n\n"
         f"🍽️ *Еда и анализы*\n"
-        f"  Всего записей о еде: *{total_meals}*\n"
+        f"  Записей о еде всего: *{total_meals}*\n"
         f"  Записей сегодня: *{meals_today}*\n"
-        f"  Всего анализов фото: *{stats['total_photos']}*\n\n"
+        f"  Среднее приёмов/день: *{stats['avg_meals_per_day']}*\n"
+        f"  Анализов фото всего: *{stats['total_photos']}*\n\n"
+        f"⏰ *Пик активности*\n{peak_text}"
         f"🌍 *Топ языков*\n{langs_text}",
         parse_mode="Markdown"
     )
