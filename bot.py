@@ -549,15 +549,17 @@ def _terms_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     ]])
 
 
-def _subscribe_keyboard() -> InlineKeyboardMarkup:
+def _subscribe_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+    m1 = t(lang, "sub_1m_label")
+    m3 = t(lang, "sub_3m_label")
     rows = [[
-        InlineKeyboardButton(f"1 мес — {PRICE_1M} ⭐", callback_data="sub_1m"),
-        InlineKeyboardButton(f"3 мес — {PRICE_3M} ⭐", callback_data="sub_3m"),
+        InlineKeyboardButton(f"{m1} — {PRICE_1M} ⭐", callback_data="sub_1m"),
+        InlineKeyboardButton(f"{m3} — {PRICE_3M} ⭐", callback_data="sub_3m"),
     ]]
     if STRIPE_SECRET_KEY:
         rows.append([
-            InlineKeyboardButton("1 мес — $2 💳", callback_data="stripe_1m"),
-            InlineKeyboardButton("3 мес — $5 💳", callback_data="stripe_3m"),
+            InlineKeyboardButton(f"{m1} — $2 💳", callback_data="stripe_1m"),
+            InlineKeyboardButton(f"{m3} — $5 💳", callback_data="stripe_3m"),
         ])
     return InlineKeyboardMarkup(rows)
 
@@ -1947,7 +1949,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             trial_line + t(lang, "subscribe_header"),
             parse_mode="Markdown",
-            reply_markup=_subscribe_keyboard(),
+            reply_markup=_subscribe_keyboard(lang),
         )
 
     elif data in ("sub_1m", "sub_3m"):
@@ -2276,7 +2278,7 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             t(lang, "subscribe_active", expires=expires),
             parse_mode="Markdown",
-            reply_markup=_subscribe_keyboard(),
+            reply_markup=_subscribe_keyboard(lang),
         )
     else:
         left = db.get_free_analyses_left(user_id)
@@ -2287,7 +2289,7 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             trial_line + t(lang, "subscribe_header_full"),
             parse_mode="Markdown",
-            reply_markup=_subscribe_keyboard(),
+            reply_markup=_subscribe_keyboard(lang),
         )
 
 
