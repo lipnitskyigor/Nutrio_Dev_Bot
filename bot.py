@@ -2269,7 +2269,10 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = _lang(user_id, update.effective_user.language_code)
     if db.is_paid_active(user_id):
         sub = db.get_subscription(user_id)
-        expires = datetime.fromisoformat(sub["sub_expires_at"]).strftime("%-d %B %Y")
+        exp = sub["sub_expires_at"]
+        if isinstance(exp, str):
+            exp = datetime.fromisoformat(exp)
+        expires = exp.strftime("%-d %B %Y")
         await update.message.reply_text(
             t(lang, "subscribe_active", expires=expires),
             parse_mode="Markdown",
