@@ -252,6 +252,8 @@ COMMANDS_BY_LANG = {
 
 def _lang(user_id: int, tg_lang_code: str | None) -> str:
     saved = db.get_user_language(user_id)
+    if tg_lang_code:
+        db.set_tg_language(user_id, tg_lang_code)
     if saved != "auto":
         return saved
     return detect_lang(tg_lang_code)
@@ -2370,6 +2372,53 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
                 sent_reminders.add(key)
             except Exception as e:
                 logger.error(f"Failed to send reminder to {user['user_id']}: {e}")
+
+    # Вечерний итог дня — 20:00 по таймзоне пользователя
+    try:
+        evening_users = db.get_users_for_evening_push()
+        for user in evening_users:
+            tz_offset = user.get("timezone_offset", 3)
+            tz = timezone(timedelta(hours=tz_offset))
+            now = datetime.now(tz)
+            if now.strftime("%H:%M") != "20:00":
+                continue
+            uid = user["user_id"]
+            key = f"{uid}:evening:{now.strftime('%Y-%m-%d')}"
+            if key in sent_reminders:
+                continue
+            try:
+                user_lang = db.get_user_language(uid)
+                if user_lang == "auto":
+                    user_lang = "ru"
+                today = now.strftime("%Y-%m-%d")
+                meals = db.get_meals_for_day(uid, today)
+                total_cal = sum(m["calories"] for m in meals)
+                total_protein = sum(m["protein"] for m in meals)
+                profile = db.get_profile(uid)
+                goal = db.get_goal(uid)
+                if profile:
+                    goal_cal = (profile["target_cal_low"] + profile["target_cal_high"]) // 2
+                elif goal:
+                    goal_cal = goal["calories"]
+                else:
+                    goal_cal = 2000
+                if meals:
+                    day_pct = round(total_cal / goal_cal * 100)
+                    text = t(user_lang, "evening_summary",
+                             total_cal=total_cal, goal_cal=goal_cal,
+                             day_pct=day_pct, total_protein=total_protein)
+                else:
+                    text = t(user_lang, "evening_no_logs")
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text=text,
+                    parse_mode="Markdown",
+                )
+                sent_reminders.add(key)
+            except Exception as e:
+                logger.error(f"Failed to send evening push to {uid}: {e}")
+    except Exception as e:
+        logger.error(f"Evening push job error: {e}")
 
     # Онбординг-подсказка про вес — на 2й день в 09:00
     try:

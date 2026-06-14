@@ -311,6 +311,9 @@ texts = {
     "btn_reminder_add": "🍽️ Mahlzeit hinzufügen",
     "btn_reminder_snooze": "❌ Nicht mehr an {meal} erinnern",
 
+    "evening_summary": "🌙 Tagesbilanz\n\nHeute: *{total_cal} kcal* von {goal_cal} ({day_pct}%)\nEiweiß: *{total_protein} g*",
+    "evening_no_logs": "📸 Wie war dein Tag?\n\nHeute noch nichts eingetragen — vergiss das Abendessen nicht.\nEinfach ein Foto schicken, dauert 5 Sekunden.",
+
     # ── Weight tip ────────────────────────────────────────────────
     "weight_tip": "⚖️ *Tipp: Gewicht verfolgen*\n\nErfasse dein Gewicht jeden Morgen — der Bot zeigt dir Verlauf und Fortschritt zum Ziel.\n\nEinfach /weight eingeben und aktuelles Gewicht angeben.\nFortschrittsübersicht: /progress",
 

@@ -309,6 +309,9 @@ texts = {
     "btn_reminder_add": "🍽️ Add meal",
     "btn_reminder_snooze": "❌ Stop reminding about {meal}",
 
+    "evening_summary": "🌙 Daily summary\n\nToday: *{total_cal} kcal* of {goal_cal} ({day_pct}%)\nProtein: *{total_protein} g*",
+    "evening_no_logs": "📸 How was your day?\n\nNothing logged yet — don't forget about dinner.\nJust take a photo, it takes 5 seconds.",
+
     # ── Weight tip ────────────────────────────────────────────────
     "weight_tip": "⚖️ *Tip: track your weight*\n\nYou can log your weight every morning — the bot will show you dynamics and progress towards your goal.\n\nJust type /weight and enter your current weight.\nProgress chart: /progress",
 
