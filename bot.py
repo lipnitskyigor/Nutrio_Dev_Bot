@@ -2504,6 +2504,26 @@ def _start_stripe_webhook_server():
         logger.error(f"Webhook server startup failed: {e}")
 
 
+async def send_winback(context: ContextTypes.DEFAULT_TYPE):
+    """Job: раз в час рассылает win-back сообщение пользователям с истёкшим триалом."""
+    users = db.get_users_for_winback()
+    for user in users:
+        uid = user["user_id"]
+        try:
+            lang = db.get_user_language(uid)
+            if lang == "auto":
+                lang = "ru"
+            await context.bot.send_message(
+                chat_id=uid,
+                text=t(lang, "winback"),
+                parse_mode="Markdown",
+                reply_markup=_paywall_keyboard(lang),
+            )
+            db.mark_winback_sent(uid)
+        except Exception as e:
+            logger.error(f"Failed to send winback to {uid}: {e}")
+
+
 async def process_stripe_payments(context: ContextTypes.DEFAULT_TYPE):
     """Job: каждые 5 секунд рассылает подтверждения после Stripe-оплаты."""
     while not _payment_queue.empty():
@@ -2675,6 +2695,7 @@ def main():
 
     # Напоминания — проверка каждую минуту
     app.job_queue.run_repeating(send_reminders, interval=60, first=5)
+    app.job_queue.run_repeating(send_winback, interval=3600, first=60)
 
     # Stripe: подтверждения оплаты — каждые 5 секунд
     app.job_queue.run_repeating(process_stripe_payments, interval=5, first=5)

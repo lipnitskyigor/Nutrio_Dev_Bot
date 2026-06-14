@@ -113,6 +113,8 @@ class Database:
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS weight_tip_sent INTEGER NOT NULL DEFAULT 0",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'auto'",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS tg_language TEXT",
+                    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS trial_ended_at TIMESTAMP DEFAULT NULL",
+                    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS winback_sent_at TIMESTAMP DEFAULT NULL",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
                     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS photo_analyses INTEGER NOT NULL DEFAULT 0",
                 ]:
@@ -314,6 +316,29 @@ class Database:
                 """)
                 return [dict(row) for row in cur.fetchall()]
 
+    def get_users_for_winback(self) -> list:
+        with self._conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT u.user_id
+                    FROM subscriptions s
+                    JOIN users u ON u.user_id = s.user_id
+                    WHERE s.trial_ended_at <= NOW() - INTERVAL '2 days'
+                      AND (s.sub_expires_at IS NULL OR s.sub_expires_at <= NOW())
+                      AND s.winback_sent_at IS NULL
+                      AND u.terms_accepted = 1
+                """)
+                return [dict(row) for row in cur.fetchall()]
+
+    def mark_winback_sent(self, user_id: int):
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE subscriptions SET winback_sent_at = NOW() WHERE user_id = %s",
+                    (user_id,)
+                )
+            conn.commit()
+
     def get_users_for_evening_push(self) -> list:
         """Пользователи, логировавшие еду в последние 3 дня — для вечернего пуша."""
         with self._conn() as conn:
@@ -470,6 +495,11 @@ class Database:
                 cur.execute(
                     "UPDATE subscriptions SET free_analyses_used = free_analyses_used + 1, photo_analyses = photo_analyses + 1 WHERE user_id = %s",
                     (user_id,)
+                )
+                cur.execute(
+                    "UPDATE subscriptions SET trial_ended_at = NOW() "
+                    "WHERE user_id = %s AND free_analyses_used >= %s AND trial_ended_at IS NULL",
+                    (user_id, FREE_ANALYSES_LIMIT)
                 )
             conn.commit()
 

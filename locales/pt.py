@@ -313,6 +313,7 @@ texts = {
     "btn_reminder_add": "🍽️ Adicionar refeição",
     "btn_reminder_snooze": "❌ Não lembrar do {meal}",
 
+    "winback": "Sentimos sua falta 👋\n\nSeus 15 scans gratuitos acabaram — mas sua jornada para uma alimentação saudável está apenas começando.\n\nAssine agora e continue acompanhando cada refeição para não perder nada 🥗",
     "evening_summary": "🌙 Resumo do dia\n\nHoje: *{total_cal} kcal* de {goal_cal} ({day_pct}%)\nProteína: *{total_protein} g*",
     "evening_no_logs": "📸 Como foi seu dia?\n\nNada registrado hoje ainda — não esqueça do jantar.\nSó tire uma foto, leva 5 segundos.",
 
