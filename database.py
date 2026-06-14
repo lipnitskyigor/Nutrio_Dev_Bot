@@ -564,13 +564,13 @@ class Database:
                 # Активных вчера (для retention)
                 cur.execute(
                     "SELECT COUNT(DISTINCT user_id) FROM meals "
-                    "WHERE day = (CURRENT_DATE - INTERVAL '1 day')::TEXT"
+                    "WHERE day = TO_CHAR(CURRENT_DATE - INTERVAL '1 day', 'YYYY-MM-DD')"
                 )
                 active_yesterday = cur.fetchone()[0]
 
                 # Активных сегодня
                 cur.execute(
-                    "SELECT COUNT(DISTINCT user_id) FROM meals WHERE day = CURRENT_DATE::TEXT"
+                    "SELECT COUNT(DISTINCT user_id) FROM meals WHERE day = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')"
                 )
                 active_today = cur.fetchone()[0]
 
