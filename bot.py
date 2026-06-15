@@ -667,10 +667,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     lang = _lang(user_id, user.language_code)
 
-    if not db.get_terms_accepted(user_id):
-        await _send_terms(update.message, name, lang)
-        return
-
     profile = db.get_profile(user_id)
     meals = db.get_meals_for_day(user_id, date.today().isoformat())
 
@@ -682,12 +678,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=_main_keyboard(lang),
         )
     else:
-        # New user — onboarding
-        await update.message.reply_text(
-            t(lang, "welcome_new"),
-            parse_mode="Markdown",
-            reply_markup=_main_keyboard(lang),
-        )
+        # New user — show onboarding step 1 (goal)
+        await _send_onb_goal(update.message, lang)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1101,7 +1093,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = _lang(user_id, update.effective_user.language_code)
     if not db.get_terms_accepted(user_id):
-        await _send_terms(update.message, update.effective_user.first_name or t(lang, "default_friend"), lang)
+        await _send_onb_goal(update.message, lang)
         return
     if not db.has_access(user_id):
         await update.message.reply_text(
@@ -1200,7 +1192,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = _lang(user_id, update.effective_user.language_code)
 
     if not db.get_terms_accepted(user_id):
-        await _send_terms(update.message, update.effective_user.first_name or t(lang, "default_friend"), lang)
+        await _send_onb_goal(update.message, lang)
         return
 
     # ── Меню-кнопки ───────────────────────────────────────────────
@@ -1280,6 +1272,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Profile step: возраст / рост / вес ───────────────────────
     step = context.user_data.get("profile_step")
+
+    if step == "onb_age":
+        try:
+            age = int(text)
+            if not (10 <= age <= 100):
+                raise ValueError
+            context.user_data["p_age"] = age
+            context.user_data["profile_step"] = "onb_weight_height"
+            await update.message.reply_text(
+                t(lang, "onb_ask_weight_height"),
+                parse_mode="Markdown",
+            )
+        except ValueError:
+            await update.message.reply_text(t(lang, "age_bad"), parse_mode="Markdown")
+        return
 
     if step == "age":
         try:
@@ -1381,6 +1388,26 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         except ValueError:
             await update.message.reply_text(t(lang, "target_weight_bad"), parse_mode="Markdown")
+        return
+
+    if step == "onb_weight_height":
+        try:
+            parts = text.strip().split()
+            if len(parts) != 2:
+                raise ValueError
+            weight = float(parts[0].replace(",", "."))
+            height = int(parts[1])
+            if not (30 <= weight <= 300) or not (100 <= height <= 250):
+                raise ValueError
+            context.user_data["p_weight"] = weight
+            context.user_data["p_height"] = height
+            context.user_data["profile_step"] = "onb_activity"
+            await update.message.reply_text(
+                t(lang, "onb_ask_activity"),
+                reply_markup=_onb_activity_keyboard(lang),
+            )
+        except (ValueError, IndexError):
+            await update.message.reply_text(t(lang, "onb_weight_height_bad"), parse_mode="Markdown")
         return
 
     if step == "timezone":
@@ -1596,6 +1623,65 @@ def _profile_prompt_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     ]])
 
 
+async def _send_onb_goal(message, lang: str) -> None:
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(t(lang, "btn_onb_goal_lose"),     callback_data="onb_goal:lose")],
+        [InlineKeyboardButton(t(lang, "btn_onb_goal_gain"),     callback_data="onb_goal:gain")],
+        [InlineKeyboardButton(t(lang, "btn_onb_goal_maintain"), callback_data="onb_goal:maintain")],
+        [InlineKeyboardButton(t(lang, "btn_onb_goal_track"),    callback_data="onb_goal:maintain")],
+    ])
+    await message.reply_text(
+        t(lang, "onb_welcome") + "\n\n" + t(lang, "onb_terms_hint"),
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+        disable_web_page_preview=True,
+    )
+
+
+def _onb_sex_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(t(lang, "btn_sex_male"),   callback_data="onb_sex:male"),
+        InlineKeyboardButton(t(lang, "btn_sex_female"), callback_data="onb_sex:female"),
+    ]])
+
+
+def _onb_activity_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(t(lang, "btn_onb_act_sedentary"), callback_data="onb_act:sedentary")],
+        [InlineKeyboardButton(t(lang, "btn_onb_act_light"),     callback_data="onb_act:light")],
+        [InlineKeyboardButton(t(lang, "btn_onb_act_moderate"),  callback_data="onb_act:moderate")],
+        [InlineKeyboardButton(t(lang, "btn_onb_act_active"),    callback_data="onb_act:active")],
+    ])
+
+
+async def _finish_onboarding(message, user_id: int, context, lang: str) -> None:
+    goal     = context.user_data.get("p_goal", "maintain")
+    sex      = context.user_data.get("p_sex", "male")
+    activity = context.user_data.get("p_activity", "moderate")
+    age      = context.user_data["p_age"]
+    height   = context.user_data["p_height"]
+    weight   = context.user_data["p_weight"]
+
+    daily, low, high = _calc_calories(sex, age, height, weight, goal, activity)
+    protein = round(daily * 0.25 / 4)
+
+    db.set_profile(user_id=user_id, goal=goal, sex=sex, age=age,
+                   height=height, weight=weight,
+                   daily_calories=daily, target_cal_low=low, target_cal_high=high,
+                   activity=activity)
+    db.log_weight(user_id, weight)
+    db.set_goal(user_id, (low + high) // 2, protein)
+
+    for k in ("profile_step", "p_goal", "p_sex", "p_activity", "p_age", "p_height", "p_weight"):
+        context.user_data.pop(k, None)
+
+    await message.reply_text(
+        t(lang, "onb_complete", low=low, high=high, protein=protein),
+        parse_mode="Markdown",
+        reply_markup=_main_keyboard(lang),
+    )
+
+
 async def _finish_profile(message, user_id: int, context, lang: str = "ru") -> None:
     """Сохраняет профиль и отправляет финальный результат."""
     goal     = context.user_data.get("p_goal", "maintain")
@@ -1645,15 +1731,30 @@ async def _finish_profile(message, user_id: int, context, lang: str = "ru") -> N
 
 
 async def _maybe_send_profile_prompt(message, user_id: int, context, lang: str = "ru") -> None:
-    """Отправляет приглашение настроить профиль — один раз, сразу после первого результата."""
+    """После первого скана: если профиль уже заполнен — предлагаем напоминания (один раз).
+    Если профиль не заполнен — предлагаем его настроить (один раз, из БД)."""
     profile = db.get_profile(user_id)
-    if not profile and not context.user_data.get("profile_prompted"):
-        context.user_data["profile_prompted"] = True
-        await message.reply_text(
-            t(lang, "profile_prompt_title"),
-            parse_mode="Markdown",
-            reply_markup=_profile_prompt_keyboard(lang),
-        )
+    if profile:
+        if not db.get_reminders_prompted(user_id):
+            notif = db.get_notifications(user_id)
+            if not notif:
+                db.set_reminders_prompted(user_id)
+                await message.reply_text(
+                    t(lang, "onb_reminders_prompt"),
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton(t(lang, "btn_onb_reminders_yes"), callback_data="onb_reminders_yes"),
+                        InlineKeyboardButton(t(lang, "btn_onb_reminders_skip"), callback_data="onb_reminders_skip"),
+                    ]]),
+                )
+    else:
+        if not db.get_profile_prompted(user_id):
+            db.set_profile_prompted(user_id)
+            await message.reply_text(
+                t(lang, "profile_prompt_title"),
+                parse_mode="Markdown",
+                reply_markup=_profile_prompt_keyboard(lang),
+            )
 
 def _goal_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
@@ -1798,34 +1899,57 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ── Terms acceptance ──────────────────────────────────────────
+    # ── Terms acceptance (legacy — keep for safety) ───────────────
     if data == "accept_terms":
-        try:
-            db.set_terms_accepted(user_id)
-            db.init_subscription(user_id)
-            logger.info(f"Terms accepted by {user_id}")
-        except Exception as e:
-            logger.error(f"Error accepting terms for {user_id}: {e}")
-            await query.message.reply_text(t(lang, "error_terms", e=e))
-            return
+        db.set_terms_accepted(user_id)
+        db.init_subscription(user_id)
         await query.edit_message_reply_markup(reply_markup=None)
-        name = query.from_user.first_name or t(lang, "default_friend")
-        profile = db.get_profile(user_id)
-        meals = db.get_meals_for_day(user_id, date.today().isoformat())
-        if profile or meals:
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=t(lang, "welcome_back", name=name),
-                parse_mode="Markdown",
-                reply_markup=_main_keyboard(lang),
-            )
-        else:
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=t(lang, "welcome_new"),
-                parse_mode="Markdown",
-                reply_markup=_main_keyboard(lang),
-            )
+        await _send_onb_goal(query.message, lang)
+        return
+
+    # ── New onboarding flow ───────────────────────────────────────
+    if data.startswith("onb_goal:"):
+        goal = data.split(":")[1]  # lose / maintain / gain
+        db.set_terms_accepted(user_id)
+        db.init_subscription(user_id)
+        context.user_data["p_goal"] = goal
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            t(lang, "onb_ask_sex"),
+            reply_markup=_onb_sex_keyboard(lang),
+        )
+        return
+
+    if data.startswith("onb_sex:"):
+        sex = data.split(":")[1]  # male / female
+        context.user_data["p_sex"] = sex
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(
+            t(lang, "onb_ask_age"),
+            parse_mode="Markdown",
+        )
+        context.user_data["profile_step"] = "onb_age"
+        return
+
+    if data.startswith("onb_act:"):
+        activity = data.split(":")[1]
+        context.user_data["p_activity"] = activity
+        await query.edit_message_reply_markup(reply_markup=None)
+        context.user_data.pop("profile_step", None)
+        await _finish_onboarding(query.message, user_id, context, lang)
+        return
+
+    if data == "onb_reminders_yes":
+        await query.edit_message_reply_markup(reply_markup=None)
+        context.user_data["profile_step"] = "timezone"
+        await query.message.reply_text(
+            t(lang, "ask_timezone"),
+            parse_mode="Markdown",
+        )
+        return
+
+    if data == "onb_reminders_skip":
+        await query.edit_message_reply_markup(reply_markup=None)
         return
 
     # ── Meal actions ──────────────────────────────────────────────

@@ -343,4 +343,25 @@ texts = {
     # ── Send photo prompt ─────────────────────────────────────────
     "analyzing_text": "🔍 Kalorilər hesablanır...",
     "send_photo_prompt": "📸 Şəkil göndərin və ya yeməyi təsvir edin — kalorileri hesablayacağam!\n\nMəsələn: *«toyuq və düyü 300q»*",
+    # ── Onboarding (new flow) ───────────────────────────────────
+    "onb_welcome": "Salam! 👋 Qidalanmanı izləməyə kömək edirəm — foto və ya mətnə görə kalori və makroları hesablayıram.\n\nNəyi izləmək istəyirsiniz?",
+    "onb_terms_hint": "Basmaqla [istifadə şərtləri](https://mealscan.org/terms.html) ilə razılaşırsınız",
+    "btn_onb_goal_lose": "🔻 Arıqlamaq",
+    "btn_onb_goal_gain": "🔺 Kökəlmək",
+    "btn_onb_goal_maintain": "⚖️ Çəkini saxlamaq",
+    "btn_onb_goal_track": "📊 Sadəcə qidalanmanı izləyirəm",
+    "onb_ask_sex": "Cinsiyyətinizi göstərin:",
+    "onb_ask_age": "Neçə yaşınız var?\n\nRəqəm yazın, məsələn: *28*",
+    "onb_ask_weight_height": "Çəki və boyunuz?\n\nİki rəqəm boşluqla yazın, məsələn: *70 175*",
+    "onb_weight_height_bad": "Anlamadım 🤔 İki rəqəm boşluqla yazın: çəki və boy\nMəsələn: *70 175*",
+    "onb_ask_activity": "Nə qədər tez-tez məşq edirsiniz?",
+    "btn_onb_act_sedentary": "🪑 Demək olar ki, məşq etmirəm",
+    "btn_onb_act_light": "🚶 Həftədə 1–2 dəfə",
+    "btn_onb_act_moderate": "🏃 Həftədə 3–5 dəfə",
+    "btn_onb_act_active": "💪 Hər gün",
+    "onb_complete": "Əla! 🎉\n\n🔥 Kalori norması: *{low}–{high} kkal/gün*\n🥩 Zülal: *~{protein} q/gün*\n\nİndi istənilən yeməyin fotosu göndərin və ya nə yediyinizi yazın — hamısını hesablayacağam 📸",
+    "onb_reminders_prompt": "Yemək haqqında xatırlatmamı istəyirsiniz? ⏰\n\nSəhər, günorta və axşam yazacağam.",
+    "btn_onb_reminders_yes": "🔔 Xatırlatmaları qurmaq",
+    "btn_onb_reminders_skip": "İndi yox",
+
 }

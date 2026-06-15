@@ -117,6 +117,8 @@ class Database:
                     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS winback_sent_at TIMESTAMP DEFAULT NULL",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
                     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS photo_analyses INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS profile_prompted BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS reminders_prompted BOOLEAN DEFAULT FALSE",
                 ]:
                     cur.execute(col_def)
             conn.commit()
@@ -463,6 +465,40 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO subscriptions (user_id) VALUES (%s) ON CONFLICT DO NOTHING",
+                    (user_id,)
+                )
+            conn.commit()
+
+    def get_profile_prompted(self, user_id: int) -> bool:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT profile_prompted FROM subscriptions WHERE user_id = %s", (user_id,))
+                row = cur.fetchone()
+                return bool(row[0]) if row else False
+
+    def set_profile_prompted(self, user_id: int):
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO subscriptions (user_id, profile_prompted) VALUES (%s, TRUE) "
+                    "ON CONFLICT (user_id) DO UPDATE SET profile_prompted = TRUE",
+                    (user_id,)
+                )
+            conn.commit()
+
+    def get_reminders_prompted(self, user_id: int) -> bool:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT reminders_prompted FROM subscriptions WHERE user_id = %s", (user_id,))
+                row = cur.fetchone()
+                return bool(row[0]) if row else False
+
+    def set_reminders_prompted(self, user_id: int):
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO subscriptions (user_id, reminders_prompted) VALUES (%s, TRUE) "
+                    "ON CONFLICT (user_id) DO UPDATE SET reminders_prompted = TRUE",
                     (user_id,)
                 )
             conn.commit()
