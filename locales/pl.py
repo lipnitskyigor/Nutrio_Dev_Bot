@@ -25,6 +25,10 @@ texts = {
     "btn_lang_ar": "🇸🇦 العربية",
     "btn_lang_kk": "🇰🇿 Қазақша",
     "btn_lang_hi": "🇮🇳 हिंदी",
+    "btn_lang_az": "🇦🇿 Azərbaycan",
+    "btn_lang_hy": "🇦🇲 Հаyеrеn",
+    "btn_lang_uz": "🇺🇿 O'zbek",
+    "btn_lang_ka": "🇬🇪 ქართული",
 
     # ── Claude API instruction ────────────────────────────────────
     "claude_lang": "po polsku",

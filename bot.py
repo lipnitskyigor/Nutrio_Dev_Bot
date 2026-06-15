@@ -247,6 +247,65 @@ COMMANDS_BY_LANG = {
         BotCommand("help",      "❓ सहायता"),
         BotCommand("support",   "💬 समर्थन"),
     ],
+    "az": [
+        BotCommand("start",     "🏠 Əsas menyu"),
+        BotCommand("today",     "📊 Bu günün yekunları"),
+        BotCommand("history",   "📅 7 günlük tarixçə"),
+        BotCommand("goal",      "🎯 Gündəlik hədəf"),
+        BotCommand("weight",    "⚖️ Çəkini qeyd et"),
+        BotCommand("target",    "🏁 Hədəf çəki"),
+        BotCommand("progress",  "📈 Çəki dinamikası"),
+        BotCommand("notify",    "🔔 Xatırlatmalar"),
+        BotCommand("language",  "🌍 Dil / Language"),
+        BotCommand("subscribe", "💳 Abunəlik"),
+        BotCommand("reset",     "🗑 Bu günü sıfırla"),
+        BotCommand("delete",    "❌ Qeydi sil"),
+        BotCommand("edit",      "✏️ Qeydi düzəlt"),
+        BotCommand("help",      "❓ Kömək"),
+        BotCommand("support",   "💬 Dəstək"),
+    ],
+    "hy": [
+        BotCommand("start",     "🏠 Սկсеl"),
+        BotCommand("today",     "📊 Aysor-і arduynknerа"),
+        BotCommand("language",  "🌍 Лезу / Language"),
+        BotCommand("diary",     "📔 Oragir"),
+        BotCommand("profile",   "👤 Profil"),
+        BotCommand("help",      "❓ Ognutyun"),
+    ],
+    "uz": [
+        BotCommand("start",     "🏠 Boshlash"),
+        BotCommand("today",     "📊 Bugungi natija"),
+        BotCommand("history",   "📅 7 kunlik tarix"),
+        BotCommand("goal",      "🎯 Kunlik maqsad"),
+        BotCommand("weight",    "⚖️ Vazn kiritish"),
+        BotCommand("target",    "🏁 Maqsad vazni"),
+        BotCommand("progress",  "📈 Vazn dinamikasi"),
+        BotCommand("notify",    "🔔 Eslatmalar"),
+        BotCommand("language",  "🌍 Til / Language"),
+        BotCommand("subscribe", "💳 Obuna"),
+        BotCommand("reset",     "🗑 Bugunni tozalash"),
+        BotCommand("delete",    "❌ Yozuvni o'chirish"),
+        BotCommand("edit",      "✏️ Yozuvni tahrirlash"),
+        BotCommand("help",      "❓ Yordam"),
+        BotCommand("support",   "💬 Qo'llab-quvvatlash"),
+    ],
+    "ka": [
+        BotCommand("start",     "🏠 დაწყება"),
+        BotCommand("today",     "📊 დღის შედეგები"),
+        BotCommand("history",   "📅 7-დღიანი ისტორია"),
+        BotCommand("goal",      "🎯 დღიური მიზანი"),
+        BotCommand("weight",    "⚖️ წონის ჩაწერა"),
+        BotCommand("target",    "🏁 სამიზნე წონა"),
+        BotCommand("progress",  "📈 წონის დინამიკა"),
+        BotCommand("notify",    "🔔 შეხსენებები"),
+        BotCommand("language",  "🌍 ენა / Language"),
+        BotCommand("subscribe", "💳 გამოწერა"),
+        BotCommand("reset",     "🗑 დღის გასუფთავება"),
+        BotCommand("delete",    "❌ ჩანაწერის წაშლა"),
+        BotCommand("edit",      "✏️ ჩანაწერის რედაქტირება"),
+        BotCommand("help",      "❓ დახმარება"),
+        BotCommand("support",   "💬 მხარდაჭერა"),
+    ],
 }
 
 
@@ -1637,6 +1696,14 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [
                 InlineKeyboardButton(t(lang, "btn_lang_hi"), callback_data="set_lang:hi"),
             ],
+            [
+                InlineKeyboardButton(t(lang, "btn_lang_az"), callback_data="set_lang:az"),
+                InlineKeyboardButton(t(lang, "btn_lang_hy"), callback_data="set_lang:hy"),
+            ],
+            [
+                InlineKeyboardButton(t(lang, "btn_lang_uz"), callback_data="set_lang:uz"),
+                InlineKeyboardButton(t(lang, "btn_lang_ka"), callback_data="set_lang:ka"),
+            ],
         ])
     )
 
@@ -1664,6 +1731,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "ar": "language_changed_ar",
             "kk": "language_changed_kk",
             "hi": "language_changed_hi",
+            "az": "language_changed_az",
+            "hy": "language_changed_hy",
+            "uz": "language_changed_uz",
+            "ka": "language_changed_ka",
         }.get(chosen, "language_changed_en")
         commands = COMMANDS_BY_LANG.get(chosen, COMMANDS_BY_LANG["en"])
         await context.bot.set_my_commands(
@@ -1704,6 +1775,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ],
                 [
                     InlineKeyboardButton(t(lang, "btn_lang_hi"), callback_data="set_lang:hi"),
+                ],
+                [
+                    InlineKeyboardButton(t(lang, "btn_lang_az"), callback_data="set_lang:az"),
+                    InlineKeyboardButton(t(lang, "btn_lang_hy"), callback_data="set_lang:hy"),
+                ],
+                [
+                    InlineKeyboardButton(t(lang, "btn_lang_uz"), callback_data="set_lang:uz"),
+                    InlineKeyboardButton(t(lang, "btn_lang_ka"), callback_data="set_lang:ka"),
                 ],
             ])
         )

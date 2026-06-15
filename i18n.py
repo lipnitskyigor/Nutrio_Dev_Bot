@@ -24,6 +24,14 @@ def detect_lang(language_code: str | None) -> str:
         return "kk"
     if language_code.startswith("hi"):
         return "hi"
+    if language_code.startswith("az"):
+        return "az"
+    if language_code.startswith("hy"):
+        return "hy"
+    if language_code.startswith("uz"):
+        return "uz"
+    if language_code.startswith("ka"):
+        return "ka"
     return DEFAULT_LANG
 
 
