@@ -1695,13 +1695,13 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ],
             [
                 InlineKeyboardButton(t(lang, "btn_lang_hi"), callback_data="set_lang:hi"),
-            ],
-            [
                 InlineKeyboardButton(t(lang, "btn_lang_az"), callback_data="set_lang:az"),
-                InlineKeyboardButton(t(lang, "btn_lang_hy"), callback_data="set_lang:hy"),
             ],
             [
+                InlineKeyboardButton(t(lang, "btn_lang_hy"), callback_data="set_lang:hy"),
                 InlineKeyboardButton(t(lang, "btn_lang_uz"), callback_data="set_lang:uz"),
+            ],
+            [
                 InlineKeyboardButton(t(lang, "btn_lang_ka"), callback_data="set_lang:ka"),
             ],
         ])
@@ -1775,13 +1775,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ],
                 [
                     InlineKeyboardButton(t(lang, "btn_lang_hi"), callback_data="set_lang:hi"),
-                ],
-                [
                     InlineKeyboardButton(t(lang, "btn_lang_az"), callback_data="set_lang:az"),
-                    InlineKeyboardButton(t(lang, "btn_lang_hy"), callback_data="set_lang:hy"),
                 ],
                 [
+                    InlineKeyboardButton(t(lang, "btn_lang_hy"), callback_data="set_lang:hy"),
                     InlineKeyboardButton(t(lang, "btn_lang_uz"), callback_data="set_lang:uz"),
+                ],
+                [
                     InlineKeyboardButton(t(lang, "btn_lang_ka"), callback_data="set_lang:ka"),
                 ],
             ])
