@@ -610,6 +610,10 @@ class Database:
                     (now, FREE_ANALYSES_LIMIT)
                 )
                 expired = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT COUNT(*) FROM subscriptions WHERE free_analyses_used >= 10"
+                )
+                used_10plus = cur.fetchone()[0]
 
                 # Новые за сегодня
                 cur.execute(
@@ -787,6 +791,7 @@ class Database:
             "peak_hours": peak_hours,
             "avg_meals_per_day": avg_meals_per_day,
             "hooked_users": hooked_users,
+            "used_10plus": used_10plus,
             "retained_d1": retained_d1, "cohort_d1": cohort_d1,
             "retained_d7": retained_d7, "cohort_d7": cohort_d7,
             "retained_d30": retained_d30, "cohort_d30": cohort_d30,
