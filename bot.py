@@ -2423,7 +2423,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     langs_text = ""
     for lang, count in stats.get("top_langs", []):
-        langs_text += f"  {lang}: {count}\n"
+        langs_text += f"  {lang}: *{count}*\n"
 
     peak_text = ""
     for hr, cnt in stats.get("peak_hours", []):
