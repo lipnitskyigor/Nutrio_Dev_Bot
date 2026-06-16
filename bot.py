@@ -2429,6 +2429,15 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for hr, cnt in stats.get("peak_hours", []):
         peak_text += f"  {hr:02d}:00 — {cnt} записей\n"
 
+    def _pct(retained, cohort):
+        if cohort == 0:
+            return "н/д"
+        return f"{round(retained / cohort * 100)}% ({retained}/{cohort})"
+
+    ret_d1  = _pct(stats["retained_d1"],  stats["cohort_d1"])
+    ret_d7  = _pct(stats["retained_d7"],  stats["cohort_d7"])
+    ret_d30 = _pct(stats["retained_d30"], stats["cohort_d30"])
+
     cohort = stats["cohort_7d"]
     retained = stats["retained_7d"]
     retention_pct = f"{round(retained / cohort * 100)}%" if cohort > 0 else "н/д"
@@ -2452,8 +2461,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"  Зацепило (3+ дня): *{stats['hooked_users']}*\n"
         f"  Streak 3+ дня подряд: *{stats['users_with_streak_3']}*\n"
         f"  Среднее активных дней: *{stats['avg_active_days']}*\n\n"
-        f"📈 *Retention*\n"
-        f"  7-дневный retention: *{retention_pct}*\n"
+        f"📈 *Retention* (только юзеры с хоть одной едой)\n"
+        f"  D1 (вернулись на день 2): *{ret_d1}*\n"
+        f"  D7 (активны на день 2–7): *{ret_d7}*\n"
+        f"  D30 (активны на день 8–30): *{ret_d30}*\n"
         f"  Конверсия → платный: *{conversion_pct}*\n\n"
         f"💳 *Подписки*\n"
         f"  Платных: *{stats['paid']}*\n"

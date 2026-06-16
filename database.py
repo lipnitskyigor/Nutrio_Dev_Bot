@@ -651,24 +651,65 @@ class Database:
                 )
                 top_langs = cur.fetchall()
 
-                # Retention: из зарегистрированных 7+ дней назад, сколько активны последние 7 дней
+                # D1 retention: зарегистрировались 2+ дней назад, вернулись на следующий день
                 cur.execute("""
-                    SELECT COUNT(DISTINCT u.user_id)
+                    SELECT
+                        COUNT(DISTINCT u.user_id) FILTER (
+                            WHERE EXISTS (
+                                SELECT 1 FROM meals m
+                                WHERE m.user_id = u.user_id
+                                  AND m.day::date >= u.first_seen_at::date + INTERVAL '1 day'
+                                  AND m.day::date <= u.first_seen_at::date + INTERVAL '2 days'
+                            )
+                        ) AS retained,
+                        COUNT(DISTINCT u.user_id) AS cohort
+                    FROM users u
+                    WHERE u.first_seen_at < CURRENT_DATE - INTERVAL '1 day'
+                      AND EXISTS (SELECT 1 FROM meals m2 WHERE m2.user_id = u.user_id)
+                """)
+                row = cur.fetchone()
+                retained_d1, cohort_d1 = row[0], row[1]
+
+                # D7 retention: зарегистрировались 7+ дней назад, были активны на 2–7 день
+                cur.execute("""
+                    SELECT
+                        COUNT(DISTINCT u.user_id) FILTER (
+                            WHERE EXISTS (
+                                SELECT 1 FROM meals m
+                                WHERE m.user_id = u.user_id
+                                  AND m.day::date >= u.first_seen_at::date + INTERVAL '2 days'
+                                  AND m.day::date <= u.first_seen_at::date + INTERVAL '7 days'
+                            )
+                        ) AS retained,
+                        COUNT(DISTINCT u.user_id) AS cohort
                     FROM users u
                     WHERE u.first_seen_at < CURRENT_DATE - INTERVAL '7 days'
-                      AND EXISTS (
-                        SELECT 1 FROM meals m
-                        WHERE m.user_id = u.user_id
-                          AND m.day >= (CURRENT_DATE - INTERVAL '7 days')::TEXT
-                      )
+                      AND EXISTS (SELECT 1 FROM meals m2 WHERE m2.user_id = u.user_id)
                 """)
-                retained_7d = cur.fetchone()[0]
+                row = cur.fetchone()
+                retained_d7, cohort_d7 = row[0], row[1]
 
+                # D30 retention: зарегистрировались 30+ дней назад, были активны на 8–30 день
                 cur.execute("""
-                    SELECT COUNT(DISTINCT user_id) FROM users
-                    WHERE first_seen_at < CURRENT_DATE - INTERVAL '7 days'
+                    SELECT
+                        COUNT(DISTINCT u.user_id) FILTER (
+                            WHERE EXISTS (
+                                SELECT 1 FROM meals m
+                                WHERE m.user_id = u.user_id
+                                  AND m.day::date >= u.first_seen_at::date + INTERVAL '8 days'
+                                  AND m.day::date <= u.first_seen_at::date + INTERVAL '30 days'
+                            )
+                        ) AS retained,
+                        COUNT(DISTINCT u.user_id) AS cohort
+                    FROM users u
+                    WHERE u.first_seen_at < CURRENT_DATE - INTERVAL '30 days'
+                      AND EXISTS (SELECT 1 FROM meals m2 WHERE m2.user_id = u.user_id)
                 """)
-                cohort_7d = cur.fetchone()[0]
+                row = cur.fetchone()
+                retained_d30, cohort_d30 = row[0], row[1]
+
+                retained_7d = retained_d7
+                cohort_7d = cohort_d7
 
                 # Пользователей с streak >= 3 дня подряд
                 cur.execute("""
@@ -746,6 +787,9 @@ class Database:
             "peak_hours": peak_hours,
             "avg_meals_per_day": avg_meals_per_day,
             "hooked_users": hooked_users,
+            "retained_d1": retained_d1, "cohort_d1": cohort_d1,
+            "retained_d7": retained_d7, "cohort_d7": cohort_d7,
+            "retained_d30": retained_d30, "cohort_d30": cohort_d30,
         }
 
     def get_user_language(self, user_id: int) -> str:
