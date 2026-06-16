@@ -2475,7 +2475,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"  Записей сегодня: *{meals_today}*\n"
         f"  Среднее приёмов/день: *{stats['avg_meals_per_day']}*\n"
         f"  Анализов фото всего: *{stats['total_photos']}*\n\n"
-        f"⏰ *Пик активности*\n{peak_text}"
+        f"⏰ *Пик активности*\n{peak_text}\n"
         f"🌍 *Топ языков*\n{langs_text}",
         parse_mode="Markdown"
     )
