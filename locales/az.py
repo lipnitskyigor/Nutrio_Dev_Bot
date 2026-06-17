@@ -278,11 +278,11 @@ texts = {
     "tz_skip": "❌ Keç",
 
     # ── Trial / Paywall ───────────────────────────────────────────
-    "trial_exhausted": "❌ *Pulsuz analizlər bitdi* (15-dən 15)\n\nKalori saymağa davam etmək üçün abunəlik alın 👇",
-    "trial_last_1": "⚠️ {limit}-dən *1 pulsuz analiz* qalıb → /subscribe",
-    "trial_last_few": "⚠️ {limit}-dən *{left} pulsuz analiz* qalıb → /subscribe",
-    "trial_some_left": "🎁 {limit}-dən {left} pulsuz analiz qalıb → /subscribe",
-    "trial_many_left": "🎁 Pulsuz analizlər: {limit}-dən {left}",
+    "trial_exhausted": "❌ *Pulsuz analizlər bitdi* (15-dən 15)\n\nArtıq 15 yemək təhlil etmisən — limitsiz davam et → /subscribe",
+    "trial_last_1": "🔴 Son pulsuz analiz! Sonra — limitsiz → /subscribe",
+    "trial_last_few": "⚠️ {limit}-dən {left} qalıb. Gündəliyini kəsmə → /subscribe",
+    "trial_some_left": "🎁 {limit}-dən {left} qalıb. Sonra — abunəliklə limitsiz analizlər",
+    "trial_many_left": "🎁 {limit}-dən {left} pulsuz analiz qalıb",
     "btn_subscribe": "💳 Abunəlik al",
     "subscribe_remaining": "🎁 Pulsuz analizlər qalıb: *{limit}-dən {left}*\n\n",
     "subscribe_exhausted": "❌ Pulsuz analizlər bitdi\n\n",

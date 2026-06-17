@@ -269,11 +269,11 @@ texts = {
     "tz_skip": "❌ Skip",
 
     # ── Trial / Paywall ───────────────────────────────────────────
-    "trial_exhausted": "❌ *Free analyses used up* (15 of 15)\n\nGet a subscription to continue counting calories 👇",
-    "trial_last_1": "⚠️ *1 free analysis* left of {limit} → /subscribe",
-    "trial_last_few": "⚠️ *{left} free analyses* left of {limit} → /subscribe",
-    "trial_some_left": "🎁 {left} free analyses left of {limit} → /subscribe",
-    "trial_many_left": "🎁 Free analyses: {left} of {limit}",
+    "trial_exhausted": "❌ *Free analyses used up* (15 of 15)\n\nYou've already logged 15 meals — keep going with no limits → /subscribe",
+    "trial_last_1": "🔴 Last free analysis! After that — unlimited → /subscribe",
+    "trial_last_few": "⚠️ {left} of {limit} left. Don't break your diary → /subscribe",
+    "trial_some_left": "🎁 {left} of {limit} left. After that — unlimited analyses with a subscription",
+    "trial_many_left": "🎁 {left} free analyses left of {limit}",
     "btn_subscribe": "💳 Get subscription",
     "subscribe_remaining": "🎁 Free analyses remaining: *{left} of {limit}*\n\n",
     "subscribe_exhausted": "❌ Free analyses used up\n\n",

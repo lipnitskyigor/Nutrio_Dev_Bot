@@ -280,11 +280,11 @@ texts = {
     "tz_skip": "❌ O'tkazib yuborish",
 
     # ── Trial / Paywall ───────────────────────────────────────────
-    "trial_exhausted": "❌ *Bepul tahlillar tugadi* (15 dan 15)\n\nKaloriyalarni hisoblashda davom etish uchun obuna oling 👇",
-    "trial_last_1": "⚠️ {limit} dan *1 bepul tahlil* qoldi → /subscribe",
-    "trial_last_few": "⚠️ {limit} dan *{left} bepul tahlil* qoldi → /subscribe",
-    "trial_some_left": "🎁 {limit} dan {left} bepul tahlil qoldi → /subscribe",
-    "trial_many_left": "🎁 Bepul tahlillar: {limit} dan {left}",
+    "trial_exhausted": "❌ *Bepul tahlillar tugadi* (15 dan 15)\n\nSen allaqachon 15 taom tahlil qilding — cheksiz davom et → /subscribe",
+    "trial_last_1": "🔴 Oxirgi bepul tahlil! Keyin — cheksiz → /subscribe",
+    "trial_last_few": "⚠️ {limit} dan {left} qoldi. Kundaligingni uzma → /subscribe",
+    "trial_some_left": "🎁 {limit} dan {left} qoldi. Keyin — obuna bilan cheksiz tahlillar",
+    "trial_many_left": "🎁 {limit} dan {left} bepul tahlil qoldi",
     "btn_subscribe": "💳 Obuna olish",
     "subscribe_remaining": "🎁 Bepul tahlillar qoldi: *{limit} dan {left}*\n\n",
     "subscribe_exhausted": "❌ Bepul tahlillar tugadi\n\n",

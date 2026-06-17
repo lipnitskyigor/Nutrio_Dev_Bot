@@ -276,11 +276,11 @@ texts = {
     "tz_skip": "❌ Өткізу",
 
     # ── Trial / Paywall ───────────────────────────────────────────
-    "trial_exhausted": "❌ *Тегін талдаулар таусылды* (15-тен 15)\n\nКалорияларды есептеуді жалғастыру үшін жазылымды рәсімдеңіз 👇",
-    "trial_last_1": "⚠️ {limit}-тен *1 тегін талдау* қалды → /subscribe",
-    "trial_last_few": "⚠️ {limit}-тен *{left} тегін талдау* қалды → /subscribe",
-    "trial_some_left": "🎁 {limit}-тен {left} тегін талдау қалды → /subscribe",
-    "trial_many_left": "🎁 Тегін талдаулар: {limit}-тен {left}",
+    "trial_exhausted": "❌ *Тегін талдаулар таусылды* (15-тен 15)\n\nСен 15 тағамды талдадың — шектеусіз жалғастыр → /subscribe",
+    "trial_last_1": "🔴 Соңғы тегін талдау! Әрі қарай — шектеусіз → /subscribe",
+    "trial_last_few": "⚠️ {limit}-тен {left} қалды. Күнделігіңді үзбе → /subscribe",
+    "trial_some_left": "🎁 {limit}-тен {left} қалды. Әрі қарай — жазылыммен шектеусіз талдау",
+    "trial_many_left": "🎁 {limit}-тен {left} тегін талдау қалды",
     "btn_subscribe": "💳 Жазылымды рәсімдеу",
     "subscribe_remaining": "🎁 Тегін талдаулар қалды: *{limit}-тен {left}*\n\n",
     "subscribe_exhausted": "❌ Тегін талдаулар таусылды\n\n",

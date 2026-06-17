@@ -280,11 +280,11 @@ texts = {
     "tz_skip": "❌ გამოტოვება",
 
     # ── Trial / Paywall ───────────────────────────────────────────
-    "trial_exhausted": "❌ *უფასო ანალიზები ამოიწურა* (15-დან 15)\n\nგამოიწერეთ კალორიების დათვლის გასაგრძელებლად 👇",
-    "trial_last_1": "⚠️ *1 უფასო ანალიზი* დარჩა {limit}-დან → /subscribe",
-    "trial_last_few": "⚠️ *{left} უფასო ანალიზი* დარჩა {limit}-დან → /subscribe",
-    "trial_some_left": "🎁 {left} უფასო ანალიზი დარჩა {limit}-დან → /subscribe",
-    "trial_many_left": "🎁 უფასო ანალიზები: {left} {limit}-დან",
+    "trial_exhausted": "❌ *უფასო ანალიზები ამოიწურა* (15-დან 15)\n\nშენ უკვე გააანალიზე 15 კერძი — განაგრძე შეზღუდვების გარეშე → /subscribe",
+    "trial_last_1": "🔴 ბოლო უფასო ანალიზი! შემდეგ — ულიმიტოდ → /subscribe",
+    "trial_last_few": "⚠️ დარჩა {left} {limit}-დან. ნუ შეწყვეტ დღიურს → /subscribe",
+    "trial_some_left": "🎁 დარჩა {left} {limit}-დან. შემდეგ — ულიმიტო ანალიზები გამოწერით",
+    "trial_many_left": "🎁 დარჩა {left} უფასო ანალიზი {limit}-დან",
     "btn_subscribe": "💳 გამოწერა",
     "subscribe_remaining": "🎁 უფასო ანალიზები დარჩა: *{left} {limit}-დან*\n\n",
     "subscribe_exhausted": "❌ უფასო ანალიზები ამოიწურა\n\n",

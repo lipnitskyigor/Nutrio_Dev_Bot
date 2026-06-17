@@ -276,11 +276,11 @@ texts = {
     "tz_skip": "❌ छोड़ें",
 
     # ── Trial / Paywall ───────────────────────────────────────────
-    "trial_exhausted": "❌ *मुफ़्त विश्लेषण समाप्त हो गए* (15 में से 15)\n\nकैलोरी गिनना जारी रखने के लिए सदस्यता लें 👇",
-    "trial_last_1": "⚠️ {limit} में से *1 मुफ़्त विश्लेषण* बचा है → /subscribe",
-    "trial_last_few": "⚠️ {limit} में से *{left} मुफ़्त विश्लेषण* बचे हैं → /subscribe",
-    "trial_some_left": "🎁 {limit} में से {left} मुफ़्त विश्लेषण बचे हैं → /subscribe",
-    "trial_many_left": "🎁 मुफ़्त विश्लेषण: {limit} में से {left}",
+    "trial_exhausted": "❌ *मुफ़्त विश्लेषण समाप्त हो गए* (15 में से 15)\n\nआप 15 भोजन का विश्लेषण कर चुके हैं — बिना सीमा जारी रखें → /subscribe",
+    "trial_last_1": "🔴 आख़िरी मुफ़्त विश्लेषण! आगे — असीमित → /subscribe",
+    "trial_last_few": "⚠️ {limit} में से {left} बचे हैं। अपनी डायरी न रोकें → /subscribe",
+    "trial_some_left": "🎁 {limit} में से {left} बचे हैं। आगे — सदस्यता के साथ बिना सीमा विश्लेषण",
+    "trial_many_left": "🎁 {limit} में से {left} मुफ़्त विश्लेषण बचे हैं",
     "btn_subscribe": "💳 सदस्यता लें",
     "subscribe_remaining": "🎁 मुफ़्त विश्लेषण शेष: *{limit} में से {left}*\n\n",
     "subscribe_exhausted": "❌ मुफ़्त विश्लेषण समाप्त हो गए\n\n",

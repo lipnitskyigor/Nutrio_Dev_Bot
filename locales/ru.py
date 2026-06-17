@@ -269,11 +269,11 @@ texts = {
     "tz_skip": "❌ Пропустить",
 
     # ── Trial / Paywall ───────────────────────────────────────────
-    "trial_exhausted": "❌ *Бесплатные анализы закончились* (15 из 15)\n\nОформи подписку, чтобы продолжить считать калории 👇",
-    "trial_last_1": "⚠️ Остался *1 бесплатный анализ* из {limit} → /subscribe",
-    "trial_last_few": "⚠️ Осталось *{left} бесплатных анализа* из {limit} → /subscribe",
-    "trial_some_left": "🎁 Осталось {left} бесплатных анализов из {limit} → /subscribe",
-    "trial_many_left": "🎁 Бесплатных анализов: {left} из {limit}",
+    "trial_exhausted": "❌ *Бесплатные анализы закончились* (15 из 15)\n\nТы уже разобрал 15 блюд — продолжай без ограничений → /subscribe",
+    "trial_last_1": "🔴 Последний бесплатный анализ! Дальше — безлимит → /subscribe",
+    "trial_last_few": "⚠️ Осталось {left} из {limit}. Не прерывай дневник → /subscribe",
+    "trial_some_left": "🎁 Осталось {left} из {limit}. Дальше — анализы без лимита по подписке",
+    "trial_many_left": "🎁 Осталось {left} бесплатных анализов из {limit}",
     "btn_subscribe": "💳 Оформить подписку",
     "subscribe_remaining": "🎁 Бесплатных анализов осталось: *{left} из {limit}*\n\n",
     "subscribe_exhausted": "❌ Бесплатные анализы закончились\n\n",

@@ -274,11 +274,11 @@ texts = {
     "tz_skip": "❌ تخطي",
 
     # ── Trial / Paywall ───────────────────────────────────────────
-    "trial_exhausted": "❌ *انتهت التحليلات المجانية* (15 من 15)\n\nاشترك لمواصلة حساب السعرات 👇",
-    "trial_last_1": "⚠️ تبقى *تحليل مجاني واحد* من {limit} → /subscribe",
-    "trial_last_few": "⚠️ تبقى *{left} تحليلات مجانية* من {limit} → /subscribe",
-    "trial_some_left": "🎁 {left} تحليلات مجانية متبقية من {limit} → /subscribe",
-    "trial_many_left": "🎁 التحليلات المجانية: {left} من {limit}",
+    "trial_exhausted": "❌ *انتهت التحليلات المجانية* (15 من 15)\n\nلقد حللت 15 وجبة بالفعل — تابع بلا حدود → /subscribe",
+    "trial_last_1": "🔴 آخر تحليل مجاني! بعده — بلا حدود → /subscribe",
+    "trial_last_few": "⚠️ تبقى {left} من {limit}. لا تقطع يومياتك → /subscribe",
+    "trial_some_left": "🎁 تبقى {left} من {limit}. بعدها — تحليلات بلا حدود مع الاشتراك",
+    "trial_many_left": "🎁 تبقى {left} تحليلات مجانية من {limit}",
     "btn_subscribe": "💳 اشترك",
     "subscribe_remaining": "🎁 التحليلات المجانية المتبقية: *{left} من {limit}*\n\n",
     "subscribe_exhausted": "❌ انتهت التحليلات المجانية\n\n",

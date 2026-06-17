@@ -280,11 +280,11 @@ texts = {
     "tz_skip": "❌ Batsatrel",
 
     # ── Trial / Paywall ───────────────────────────────────────────
-    "trial_exhausted": "❌ *Anvjar analyznery seрпveln (15-іс 15)*\n\nBaynordvek shareq sнnutyan hashvely sharunkelu hamar 👇",
-    "trial_last_1": "⚠️ *1 anvar analyz* mnatsvats е {limit}-іс → /subscribe",
-    "trial_last_few": "⚠️ *{left} anvar analyz* mnatsvats en {limit}-іс → /subscribe",
-    "trial_some_left": "🎁 {left} anvar analyz mnatsvats е {limit}-іс → /subscribe",
-    "trial_many_left": "🎁 Anvar analyznеr: {left} {limit}-іс",
+    "trial_exhausted": "❌ *Անվճար վերլուծությունները սպառվել են* (15-ից 15)\n\nԴու արդեն վերլուծել ես 15 ուտեստ — շարունակիր առանց սահմանափակումների → /subscribe",
+    "trial_last_1": "🔴 Վերջին անվճար վերլուծությունը: Հետո՝ անսահմանափակ → /subscribe",
+    "trial_last_few": "⚠️ Մնացել է {left} {limit}-ից։ Մի՛ ընդհատիր օրագիրը → /subscribe",
+    "trial_some_left": "🎁 Մնացել է {left} {limit}-ից։ Հետո՝ անսահմանափակ վերլուծություններ բաժանորդագրությամբ",
+    "trial_many_left": "🎁 Մնացել է {left} անվճար վերլուծություն {limit}-ից",
     "btn_subscribe": "💳 Baregrutyun",
     "subscribe_remaining": "🎁 Anvar analyznеr mnatsvats en: *{left} {limit}-іс*\n\n",
     "subscribe_exhausted": "❌ Anvar analyznery sерпveln\n\n",

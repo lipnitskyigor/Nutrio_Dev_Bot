@@ -37,8 +37,33 @@ ADMIN_ID = 148160233
 
 PRICE_1M = 100   # Telegram Stars (~$2)
 PRICE_3M = 250   # Telegram Stars (~$5)
-PRICE_1M_USD = 200   # cents ($2.00) — Stripe
-PRICE_3M_USD = 500   # cents ($5.00) — Stripe
+PRICE_1M_USD = 199   # cents ($1.99) — Stripe
+PRICE_3M_USD = 499   # cents ($4.99) — Stripe
+
+# Названия месяцев по локалям (для дат вида «1 января 2099»)
+_MONTHS = {
+    "ru": ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"],
+    "en": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+    "uk": ["січня", "лютого", "березня", "квітня", "травня", "червня", "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"],
+    "be": ["студзеня", "лютага", "сакавіка", "красавіка", "мая", "чэрвеня", "ліпеня", "жніўня", "верасня", "кастрычніка", "лістапада", "снежня"],
+    "de": ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"],
+    "pl": ["stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca", "lipca", "sierpnia", "września", "października", "listopada", "grudnia"],
+    "es": ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"],
+    "pt": ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"],
+    "ar": ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"],
+    "kk": ["қаңтар", "ақпан", "наурыз", "сәуір", "мамыр", "маусым", "шілде", "тамыз", "қыркүйек", "қазан", "қараша", "желтоқсан"],
+    "hi": ["जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून", "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर"],
+    "az": ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avqust", "sentyabr", "oktyabr", "noyabr", "dekabr"],
+    "hy": ["հունվարի", "փետրվարի", "մարտի", "ապրիլի", "մայիսի", "հունիսի", "հուլիսի", "օգոստոսի", "սեպտեմբերի", "հոկտեմբերի", "նոյեմբերի", "դեկտեմբերի"],
+    "uz": ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentyabr", "oktyabr", "noyabr", "dekabr"],
+    "ka": ["იანვარი", "თებერვალი", "მარტი", "აპრილი", "მაისი", "ივნისი", "ივლისი", "აგვისტო", "სექტემბერი", "ოქტომბერი", "ნოემბერი", "დეკემბერი"],
+}
+
+
+def _fmt_date(dt, lang: str = "ru") -> str:
+    """Дата с локализованным месяцем: «1 января 2099»."""
+    months = _MONTHS.get(lang, _MONTHS["en"])
+    return f"{dt.day} {months[dt.month - 1]} {dt.year}"
 STRIPE_PROVIDER_TOKEN = os.environ.get("STRIPE_PROVIDER_TOKEN", "")
 
 # Stripe Checkout (новая интеграция)
@@ -625,12 +650,12 @@ def _subscribe_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     m3 = t(lang, "sub_3m_label")
     rows = [[
         InlineKeyboardButton(f"{m1} — {PRICE_1M} ⭐", callback_data="sub_1m"),
-        InlineKeyboardButton(f"{m3} — {PRICE_3M} ⭐", callback_data="sub_3m"),
+        InlineKeyboardButton(f"{m3} — {PRICE_3M} ⭐ (−17%)", callback_data="sub_3m"),
     ]]
     if STRIPE_SECRET_KEY:
         rows.append([
-            InlineKeyboardButton(f"{m1} — $2 💳", callback_data="stripe_1m"),
-            InlineKeyboardButton(f"{m3} — $5 💳", callback_data="stripe_3m"),
+            InlineKeyboardButton(f"{m1} — $1.99 💳", callback_data="stripe_1m"),
+            InlineKeyboardButton(f"{m3} — $4.99 💳 (−17%)", callback_data="stripe_3m"),
         ])
     return InlineKeyboardMarkup(rows)
 
@@ -2193,7 +2218,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         months = 3 if data == "stripe_3m" else 1
         price_cents = PRICE_3M_USD if months == 3 else PRICE_1M_USD
         title_key = "sub_invoice_title_3m" if months == 3 else "sub_invoice_title_1m"
-        price_label = "$5" if months == 3 else "$2"
+        price_label = "$4.99" if months == 3 else "$1.99"
         try:
             loop = asyncio.get_event_loop()
             session = await loop.run_in_executor(
@@ -2501,7 +2526,7 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         exp = sub["sub_expires_at"]
         if isinstance(exp, str):
             exp = datetime.fromisoformat(exp)
-        expires = exp.strftime("%-d %B %Y")
+        expires = _fmt_date(exp, lang)
         await update.message.reply_text(
             t(lang, "subscribe_active", expires=expires),
             parse_mode="Markdown",

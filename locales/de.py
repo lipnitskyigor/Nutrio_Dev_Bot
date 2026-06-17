@@ -271,11 +271,11 @@ texts = {
     "tz_skip": "❌ Überspringen",
 
     # ── Trial / Paywall ───────────────────────────────────────────
-    "trial_exhausted": "❌ *Kostenlose Analysen aufgebraucht* (15 von 15)\n\nAbonniere, um weiter Kalorien zu zählen 👇",
-    "trial_last_1": "⚠️ Noch *1 kostenlose Analyse* von {limit} → /subscribe",
-    "trial_last_few": "⚠️ Noch *{left} kostenlose Analysen* von {limit} → /subscribe",
-    "trial_some_left": "🎁 {left} kostenlose Analysen übrig von {limit} → /subscribe",
-    "trial_many_left": "🎁 Kostenlose Analysen: {left} von {limit}",
+    "trial_exhausted": "❌ *Kostenlose Analysen aufgebraucht* (15 von 15)\n\nDu hast schon 15 Mahlzeiten erfasst — mach unbegrenzt weiter → /subscribe",
+    "trial_last_1": "🔴 Letzte kostenlose Analyse! Danach — unbegrenzt → /subscribe",
+    "trial_last_few": "⚠️ Noch {left} von {limit}. Unterbrich dein Tagebuch nicht → /subscribe",
+    "trial_some_left": "🎁 Noch {left} von {limit}. Danach — unbegrenzte Analysen mit Abo",
+    "trial_many_left": "🎁 Noch {left} kostenlose Analysen von {limit}",
     "btn_subscribe": "💳 Abonnieren",
     "subscribe_remaining": "🎁 Kostenlose Analysen übrig: *{left} von {limit}*\n\n",
     "subscribe_exhausted": "❌ Kostenlose Analysen aufgebraucht\n\n",
