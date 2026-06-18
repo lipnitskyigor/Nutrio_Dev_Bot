@@ -119,6 +119,9 @@ class Database:
                     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS photo_analyses INTEGER NOT NULL DEFAULT 0",
                     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS profile_prompted BOOLEAN DEFAULT FALSE",
                     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS reminders_prompted BOOLEAN DEFAULT FALSE",
+                    # Воронка онбординга: до какого экрана дошёл пользователь.
+                    # 1=цель, 2=пол, 3=возраст, 4=вес+рост, 5=активность, 6=завершил.
+                    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS onb_step INTEGER NOT NULL DEFAULT 0",
                 ]:
                     cur.execute(col_def)
             conn.commit()
@@ -536,6 +539,16 @@ class Database:
                     "UPDATE subscriptions SET trial_ended_at = NOW() "
                     "WHERE user_id = %s AND free_analyses_used >= %s AND trial_ended_at IS NULL",
                     (user_id, FREE_ANALYSES_LIMIT)
+                )
+            conn.commit()
+
+    def bump_onb_step(self, user_id: int, step: int):
+        """Запоминает самый дальний шаг онбординга (не уменьшается)."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE subscriptions SET onb_step = GREATEST(onb_step, %s) WHERE user_id = %s",
+                    (step, user_id)
                 )
             conn.commit()
 

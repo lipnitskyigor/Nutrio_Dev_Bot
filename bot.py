@@ -1310,6 +1310,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 raise ValueError
             context.user_data["p_age"] = age
             context.user_data["profile_step"] = "onb_weight_height"
+            db.bump_onb_step(user_id, 4)  # ввёл возраст → экран «вес+рост»
             await update.message.reply_text(
                 t(lang, "onb_ask_weight_height"),
                 parse_mode="Markdown",
@@ -1432,6 +1433,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["p_weight"] = weight
             context.user_data["p_height"] = height
             context.user_data["profile_step"] = "onb_activity"
+            db.bump_onb_step(user_id, 5)  # ввёл вес+рост → экран «активность»
             await update.message.reply_text(
                 t(lang, "onb_ask_activity"),
                 reply_markup=_onb_activity_keyboard(lang),
@@ -1659,6 +1661,10 @@ def _profile_prompt_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
 
 
 async def _send_onb_goal(message, lang: str) -> None:
+    # Вход в воронку: показан экран «цель» (шаг 1). user_id == chat_id в личке.
+    uid = message.chat_id
+    db.init_subscription(uid)
+    db.bump_onb_step(uid, 1)
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(t(lang, "btn_onb_goal_lose"),     callback_data="onb_goal:lose")],
         [InlineKeyboardButton(t(lang, "btn_onb_goal_gain"),     callback_data="onb_goal:gain")],
@@ -1706,6 +1712,7 @@ async def _finish_onboarding(message, user_id: int, context, lang: str) -> None:
                    activity=activity)
     db.log_weight(user_id, weight)
     db.set_goal(user_id, (low + high) // 2, protein)
+    db.bump_onb_step(user_id, 6)  # выбрал активность → онбординг завершён
 
     for k in ("profile_step", "p_goal", "p_sex", "p_activity", "p_age", "p_height", "p_weight"):
         context.user_data.pop(k, None)
@@ -1947,6 +1954,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         goal = data.split(":")[1]  # lose / maintain / gain
         db.set_terms_accepted(user_id)
         db.init_subscription(user_id)
+        db.bump_onb_step(user_id, 2)  # выбрал цель → экран «пол»
         context.user_data["p_goal"] = goal
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
@@ -1958,6 +1966,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("onb_sex:"):
         sex = data.split(":")[1]  # male / female
         context.user_data["p_sex"] = sex
+        db.bump_onb_step(user_id, 3)  # выбрал пол → экран «возраст»
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
             t(lang, "onb_ask_age"),
@@ -2625,6 +2634,41 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="Markdown")
 
 
+async def funnel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    import psycopg2
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            # reached[N] = сколько дошли до шага N (onb_step >= N)
+            reached = {}
+            for n in range(1, 7):
+                cur.execute("SELECT COUNT(*) FROM subscriptions WHERE onb_step >= %s", (n,))
+                reached[n] = cur.fetchone()[0]
+
+    labels = {
+        1: "1. Экран «цель»",
+        2: "2. Экран «пол» (выбрал цель)",
+        3: "3. Экран «возраст» (выбрал пол)",
+        4: "4. Экран «вес+рост» (ввёл возраст)",
+        5: "5. Экран «активность» (ввёл вес+рост)",
+        6: "6. ✅ Завершил (выбрал активность)",
+    }
+    started = reached[1]
+    lines = ["🪜 *Воронка онбординга*", "_(только новые юзеры после деплоя трекинга)_", ""]
+    for n in range(1, 7):
+        cnt = reached[n]
+        of_start = f"{cnt / started * 100:.0f}%" if started else "—"
+        line = f"{labels[n]}: *{cnt}* ({of_start})"
+        if n < 6:
+            nxt = reached[n + 1]
+            drop = (cnt - nxt) / cnt * 100 if cnt else 0
+            line += f"\n   ↓ отвал {drop:.0f}%"
+        lines.append(line)
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
 async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = _lang(user_id, update.effective_user.language_code)
@@ -3052,6 +3096,7 @@ def main():
     app.add_handler(CommandHandler("resetme", resetme_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("analytics", analytics_command))
+    app.add_handler(CommandHandler("funnel", funnel_command))
     app.add_handler(CommandHandler("notify", notify_command))
     app.add_handler(CommandHandler("subscribe", subscribe_command))
     app.add_handler(CommandHandler("support", support_command))
