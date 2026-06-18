@@ -1180,6 +1180,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             summary_prefix = ""
 
+        # Анализ удался и блюдо сохранено → списываем квоту сразу,
+        # до Markdown-рендера ниже, который может упасть и пропустить счётчик.
+        charged = not db.is_paid_active(user_id)
+        if charged:
+            db.use_free_analysis(user_id)
+
         meals = db.get_meals_for_day(user_id, today)
         total_cal = sum(m["calories"] for m in meals)
         total_protein = sum(m["protein"] for m in meals)
@@ -1191,8 +1197,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=_meal_keyboard(meal_id, lang),
         )
-        if not db.is_paid_active(user_id):
-            db.use_free_analysis(user_id)
+        if charged:
             left = db.get_free_analyses_left(user_id)
             notice = _trial_notice(left, lang)
             if notice:
@@ -1609,6 +1614,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fat=result["fat"], carbs=result["carbs"],
         )
 
+        # Анализ удался и блюдо сохранено → списываем квоту сразу,
+        # до Markdown-рендера ниже, который может упасть и пропустить счётчик.
+        charged = not db.is_paid_active(user_id)
+        if charged:
+            db.use_free_analysis(user_id)
+        else:
+            db.increment_photo_analyses(user_id)
+
         meals = db.get_meals_for_day(user_id, today)
         total_cal = sum(m["calories"] for m in meals)
         total_protein = sum(m["protein"] for m in meals)
@@ -1620,8 +1633,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=_meal_keyboard(meal_id, lang),
         )
-        if not db.is_paid_active(user_id):
-            db.use_free_analysis(user_id)
+        if charged:
             left = db.get_free_analyses_left(user_id)
             notice = _trial_notice(left, lang)
             if notice:
@@ -1630,8 +1642,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="Markdown",
                     reply_markup=_paywall_keyboard(lang) if left == 0 else None,
                 )
-        else:
-            db.increment_photo_analyses(user_id)
         await _maybe_send_profile_prompt(update.message, user_id, context, lang)
 
     except json.JSONDecodeError:
