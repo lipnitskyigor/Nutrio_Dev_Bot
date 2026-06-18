@@ -2517,6 +2517,114 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+def _churn_classify_lang(language, tg_language) -> str:
+    """Эффективный язык как в _lang: ручной выбор важнее, иначе TG-язык."""
+    eff = (language if (language and language != "auto") else (tg_language or "")).lower()
+    if eff.startswith("uz"):
+        return "uz"
+    if eff.startswith("ru"):
+        return "ru"
+    return "остальные"
+
+
+def _churn_bucket(n: int) -> str:
+    if n <= 0:
+        return "0"
+    if n <= 2:
+        return "1-2"
+    if n <= 5:
+        return "3-5"
+    if n <= 10:
+        return "6-10"
+    if n <= 14:
+        return "11-14"
+    return "15 (лимит)"
+
+
+_CHURN_BUCKETS = ["0", "1-2", "3-5", "6-10", "11-14", "15 (лимит)"]
+
+
+def _churn_block(title: str, used_list: list) -> str:
+    import statistics
+    total = len(used_list)
+    if total == 0:
+        return f"*{title}* (0)\n  —\n"
+    lines = [f"*{title}* ({total})"]
+    counts = {b: 0 for b in _CHURN_BUCKETS}
+    for n in used_list:
+        counts[_churn_bucket(n)] += 1
+    for b in _CHURN_BUCKETS:
+        c = counts[b]
+        pct = c / total * 100
+        lines.append(f"  {b}: {c} ({pct:.0f}%)")
+    lines.append(f"  ср: {statistics.mean(used_list):.1f} / мед: {statistics.median(used_list):.0f}")
+    return "\n".join(lines) + "\n"
+
+
+async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    from datetime import date as _date, datetime as _dt, timedelta as _td
+    import psycopg2.extras
+
+    def _as_date(v):
+        if v is None:
+            return None
+        if isinstance(v, _dt):
+            return v.date()
+        if isinstance(v, _date):
+            return v
+        try:
+            return _dt.strptime(str(v)[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return None
+
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT s.user_id,
+                       s.free_analyses_used AS used,
+                       s.sub_expires_at,
+                       EXISTS(SELECT 1 FROM profiles p WHERE p.user_id = s.user_id) AS has_profile,
+                       u.language, u.tg_language, u.first_seen_at,
+                       (SELECT MAX(m.day) FROM meals m WHERE m.user_id = s.user_id) AS last_meal_day
+                FROM subscriptions s
+                LEFT JOIN users u ON u.user_id = s.user_id
+            """)
+            rows = cur.fetchall()
+
+    today = _date.today()
+    cutoff = today - _td(days=3)
+    total_users = len(rows)
+    paid_now = 0
+    cohort = []  # (used, has_profile, lang)
+    for r in rows:
+        exp = r["sub_expires_at"]
+        if exp is not None and exp > _dt.now():
+            paid_now += 1
+            continue
+        last_active = _as_date(r["last_meal_day"]) or _as_date(r["first_seen_at"])
+        if last_active is None or last_active > cutoff:
+            continue
+        cohort.append((r["used"] or 0, r["has_profile"], _churn_classify_lang(r["language"], r["tg_language"])))
+
+    used_all = [u for u, _, _ in cohort]
+    text = (
+        f"📉 *Анализ ухода* (неактивны 3+ дн., без подписки)\n\n"
+        f"Всего юзеров: *{total_users}*\n"
+        f"На платной сейчас: *{paid_now}*\n"
+        f"Отвалившихся: *{len(cohort)}*\n\n"
+        + _churn_block("Все отвалившиеся", used_all) + "\n"
+        + _churn_block("✅ Прошли онбординг", [u for u, p, _ in cohort if p])
+        + _churn_block("❌ Без онбординга", [u for u, p, _ in cohort if not p]) + "\n"
+        + _churn_block("🇺🇿 uz", [u for u, _, l in cohort if l == "uz"])
+        + _churn_block("🇷🇺 ru", [u for u, _, l in cohort if l == "ru"])
+        + _churn_block("🌍 остальные", [u for u, _, l in cohort if l == "остальные"])
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+
 async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = _lang(user_id, update.effective_user.language_code)
@@ -2943,6 +3051,7 @@ def main():
     app.add_handler(CommandHandler("gift", gift_command))
     app.add_handler(CommandHandler("resetme", resetme_command))
     app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("analytics", analytics_command))
     app.add_handler(CommandHandler("notify", notify_command))
     app.add_handler(CommandHandler("subscribe", subscribe_command))
     app.add_handler(CommandHandler("support", support_command))
