@@ -692,6 +692,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     lang = _lang(user_id, user.language_code)
 
+    # Шаг 0 воронки: отметка «нажал Start» до любого онбординга.
+    # ON CONFLICT DO NOTHING внутри — у вернувшихся дату не сдвигаем.
+    db.mark_started(user_id)
+
     profile = db.get_profile(user_id)
     meals = db.get_meals_for_day(user_id, date.today().isoformat())
 
@@ -2641,12 +2645,38 @@ async def funnel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import psycopg2
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
-            # reached[N] = сколько дошли до шага N (onb_step >= N)
+            # Шаг 0: «нажал Start». started_at есть только у новых юзеров после
+            # деплоя трекинга. start_to_goal считаем по тому же когорту
+            # (started_at IS NOT NULL), чтобы отвал Start → цель был честным.
+            cur.execute("SELECT COUNT(*) FROM subscriptions WHERE started_at IS NOT NULL")
+            pressed_start = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM subscriptions "
+                "WHERE started_at IS NOT NULL AND onb_step >= 1"
+            )
+            start_to_goal = cur.fetchone()[0]
+
+            # reached[N] = сколько дошли до шага N (onb_step >= N), за всё время.
             reached = {}
             for n in range(1, 7):
                 cur.execute("SELECT COUNT(*) FROM subscriptions WHERE onb_step >= %s", (n,))
                 reached[n] = cur.fetchone()[0]
 
+    lines = ["🪜 *Воронка онбординга*", ""]
+
+    # ── Вход: Start → экран «цель» (только когорт с отметкой started_at) ──
+    lines.append("🚪 *Вход* _(новые юзеры после деплоя)_")
+    if pressed_start:
+        drop0 = (pressed_start - start_to_goal) / pressed_start * 100
+        goal_pct = start_to_goal / pressed_start * 100
+        lines.append(f"0. Нажали Start: *{pressed_start}*")
+        lines.append(f"   ↓ отвал на приветствии/terms {drop0:.0f}%")
+        lines.append(f"1. Дошли до экрана «цель»: *{start_to_goal}* ({goal_pct:.0f}%)")
+    else:
+        lines.append("0. Нажали Start: *0* (ждём новых юзеров после деплоя)")
+    lines.append("")
+
+    # ── Онбординг: шаги 1–6 (за всё время, как раньше) ──
     labels = {
         1: "1. Экран «цель»",
         2: "2. Экран «пол» (выбрал цель)",
@@ -2656,7 +2686,7 @@ async def funnel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         6: "6. ✅ Завершил (выбрал активность)",
     }
     started = reached[1]
-    lines = ["🪜 *Воронка онбординга*", "_(только новые юзеры после деплоя трекинга)_", ""]
+    lines.append("📋 *Онбординг* _(за всё время)_")
     for n in range(1, 7):
         cnt = reached[n]
         of_start = f"{cnt / started * 100:.0f}%" if started else "—"

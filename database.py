@@ -122,6 +122,9 @@ class Database:
                     # Воронка онбординга: до какого экрана дошёл пользователь.
                     # 1=цель, 2=пол, 3=возраст, 4=вес+рост, 5=активность, 6=завершил.
                     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS onb_step INTEGER NOT NULL DEFAULT 0",
+                    # Отметка «нажал Start» — ставится в начале start(), до онбординга.
+                    # NULL у старых юзеров (без отметки). Не связана с onb_step / first_seen_at.
+                    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS started_at TIMESTAMP DEFAULT NULL",
                 ]:
                     cur.execute(col_def)
             conn.commit()
@@ -468,6 +471,19 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO subscriptions (user_id) VALUES (%s) ON CONFLICT DO NOTHING",
+                    (user_id,)
+                )
+            conn.commit()
+
+    def mark_started(self, user_id: int):
+        """Отметка «нажал Start» — вызывается в самом начале start(), до онбординга.
+        ON CONFLICT DO NOTHING: у вернувшихся юзеров started_at не сдвигаем (остаётся
+        первое значение / NULL у старых). НЕ трогает onb_step и first_seen_at."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO subscriptions (user_id, started_at) "
+                    "VALUES (%s, CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING",
                     (user_id,)
                 )
             conn.commit()
