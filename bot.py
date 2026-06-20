@@ -69,7 +69,7 @@ STRIPE_PROVIDER_TOKEN = os.environ.get("STRIPE_PROVIDER_TOKEN", "")
 # Stripe Checkout (новая интеграция)
 STRIPE_SECRET_KEY      = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET  = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
-BOT_USERNAME           = os.environ.get("BOT_USERNAME", "mealscanbot")
+BOT_USERNAME           = os.environ.get("BOT_USERNAME", "MealScan_AI_Bot")
 
 import stripe as stripe_lib
 if STRIPE_SECRET_KEY:
