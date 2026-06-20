@@ -2751,8 +2751,17 @@ async def leads_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang = (r["language"] if r["language"] and r["language"] != "auto"
                 else r["tg_language"]) or "—"
         uid = r["user_id"]
-        lines.append(f"• `{uid}` — {lang} ({r['used']} сканов)")
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        # Username в БД не хранится — тянем live через Telegram. @handle в Telegram
+        # тапается и открывает профиль. Может не быть username / юзер заблокировал бота.
+        try:
+            chat = await context.bot.get_chat(uid)
+            handle = f"@{chat.username}" if chat.username else "(нет username)"
+        except Exception:
+            handle = "(недоступен)"
+        lines.append(f"• `{uid}` — {handle} — {lang} ({r['used']} сканов)")
+    await update.message.reply_text(
+        "\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True
+    )
 
 
 async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
