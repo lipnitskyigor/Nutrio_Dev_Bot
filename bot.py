@@ -693,8 +693,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = _lang(user_id, user.language_code)
 
     # Шаг 0 воронки: отметка «нажал Start» до любого онбординга.
-    # ON CONFLICT DO NOTHING внутри — у вернувшихся дату не сдвигаем.
-    db.mark_started(user_id)
+    # Источник из deep-link (?start=ig / ?start=site), без метки → direct/NULL.
+    # ON CONFLICT DO NOTHING внутри — у вернувшихся дату и источник не сдвигаем.
+    src = context.args[0] if context.args else None
+    db.mark_started(user_id, src)
 
     profile = db.get_profile(user_id)
     meals = db.get_meals_for_day(user_id, date.today().isoformat())
@@ -2656,6 +2658,16 @@ async def funnel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             start_to_goal = cur.fetchone()[0]
 
+            # Разрез шага 0 по источникам (?start=ig / site, NULL → direct).
+            cur.execute(
+                "SELECT COALESCE(source, 'direct') AS src, "
+                "       COUNT(*) AS started, "
+                "       COUNT(*) FILTER (WHERE onb_step >= 1) AS to_goal "
+                "FROM subscriptions WHERE started_at IS NOT NULL "
+                "GROUP BY COALESCE(source, 'direct') ORDER BY started DESC"
+            )
+            by_source = cur.fetchall()
+
             # reached[N] = сколько дошли до шага N (onb_step >= N), за всё время.
             reached = {}
             for n in range(1, 7):
@@ -2672,6 +2684,14 @@ async def funnel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"0. Нажали Start: *{pressed_start}*")
         lines.append(f"   ↓ отвал на приветствии/terms {drop0:.0f}%")
         lines.append(f"1. Дошли до экрана «цель»: *{start_to_goal}* ({goal_pct:.0f}%)")
+        # Разрез по источникам: Start → цель внутри каждого источника.
+        src_labels = {"ig": "📷 Instagram", "site": "🌐 Лендинг", "direct": "🔍 Direct/органика"}
+        lines.append("")
+        lines.append("*По источникам* (Start → цель):")
+        for src, started, to_goal in by_source:
+            label = src_labels.get(src, f"❓ {src}")
+            pct = f"{to_goal / started * 100:.0f}%" if started else "—"
+            lines.append(f"• {label}: *{started}* → {to_goal} ({pct})")
     else:
         lines.append("0. Нажали Start: *0* (ждём новых юзеров после деплоя)")
     lines.append("")

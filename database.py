@@ -125,6 +125,9 @@ class Database:
                     # Отметка «нажал Start» — ставится в начале start(), до онбординга.
                     # NULL у старых юзеров (без отметки). Не связана с onb_step / first_seen_at.
                     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS started_at TIMESTAMP DEFAULT NULL",
+                    # Источник перехода (deep-link ?start=<src>): ig / site / NULL=direct.
+                    # First-touch: пишется вместе со started_at, у вернувшихся не перетирается.
+                    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS source TEXT DEFAULT NULL",
                 ]:
                     cur.execute(col_def)
             conn.commit()
@@ -475,16 +478,17 @@ class Database:
                 )
             conn.commit()
 
-    def mark_started(self, user_id: int):
+    def mark_started(self, user_id: int, source: str = None):
         """Отметка «нажал Start» — вызывается в самом начале start(), до онбординга.
-        ON CONFLICT DO NOTHING: у вернувшихся юзеров started_at не сдвигаем (остаётся
-        первое значение / NULL у старых). НЕ трогает onb_step и first_seen_at."""
+        ON CONFLICT DO NOTHING: у вернувшихся юзеров started_at/source не сдвигаем
+        (first-touch: остаётся первое значение / NULL у старых). НЕ трогает onb_step
+        и first_seen_at. source — deep-link ?start=<src> (ig / site / NULL=direct)."""
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO subscriptions (user_id, started_at) "
-                    "VALUES (%s, CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING",
-                    (user_id,)
+                    "INSERT INTO subscriptions (user_id, started_at, source) "
+                    "VALUES (%s, CURRENT_TIMESTAMP, %s) ON CONFLICT DO NOTHING",
+                    (user_id, source)
                 )
             conn.commit()
 
