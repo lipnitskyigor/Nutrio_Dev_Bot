@@ -2719,6 +2719,42 @@ async def funnel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
+async def leads_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Список юзеров, достигших лимита 15 сканов, но не оплативших — для личных
+    сообщений. Фильтр совпадает со стат-метрикой «Достигли лимита, не платят»:
+    нет активной подписки И free_analyses_used >= лимита."""
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    import psycopg2.extras
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT s.user_id, s.free_analyses_used AS used, "
+                "       u.language, u.tg_language "
+                "FROM subscriptions s "
+                "LEFT JOIN users u ON u.user_id = s.user_id "
+                "WHERE (s.sub_expires_at IS NULL OR s.sub_expires_at <= NOW()) "
+                "  AND s.free_analyses_used >= %s "
+                "ORDER BY s.free_analyses_used DESC, s.user_id",
+                (FREE_ANALYSES_LIMIT,)
+            )
+            rows = cur.fetchall()
+
+    if not rows:
+        await update.message.reply_text("Никого: нет юзеров с лимитом без оплаты.")
+        return
+
+    lines = [f"🎯 *Достигли лимита, не платят* — {len(rows)}", ""]
+    for r in rows:
+        # Эффективный язык как в _lang: ручной выбор важнее, иначе TG-язык.
+        lang = (r["language"] if r["language"] and r["language"] != "auto"
+                else r["tg_language"]) or "—"
+        uid = r["user_id"]
+        lines.append(f"• `{uid}` — {lang} ({r['used']} сканов)")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
 async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = _lang(user_id, update.effective_user.language_code)
@@ -3147,6 +3183,7 @@ def main():
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("analytics", analytics_command))
     app.add_handler(CommandHandler("funnel", funnel_command))
+    app.add_handler(CommandHandler("leads", leads_command))
     app.add_handler(CommandHandler("notify", notify_command))
     app.add_handler(CommandHandler("subscribe", subscribe_command))
     app.add_handler(CommandHandler("support", support_command))
