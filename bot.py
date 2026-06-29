@@ -693,7 +693,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = _lang(user_id, user.language_code)
 
     # Шаг 0 воронки: отметка «нажал Start» до любого онбординга.
-    # Источник из deep-link (?start=ig / ?start=site), без метки → direct/NULL.
+    # Источник из deep-link (?start=ig / site / site_home), без метки → direct/NULL.
     # ON CONFLICT DO NOTHING внутри — у вернувшихся дату и источник не сдвигаем.
     src = context.args[0] if context.args else None
     db.mark_started(user_id, src)
@@ -2658,7 +2658,7 @@ async def funnel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             start_to_goal = cur.fetchone()[0]
 
-            # Разрез шага 0 по источникам (?start=ig / site, NULL → direct).
+            # Разрез шага 0 по источникам (?start=ig / site / site_home, NULL → direct).
             cur.execute(
                 "SELECT COALESCE(source, 'direct') AS src, "
                 "       COUNT(*) AS started, "
@@ -2685,7 +2685,7 @@ async def funnel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"   ↓ отвал на приветствии/terms {drop0:.0f}%")
         lines.append(f"1. Дошли до экрана «цель»: *{start_to_goal}* ({goal_pct:.0f}%)")
         # Разрез по источникам: Start → цель внутри каждого источника.
-        src_labels = {"ig": "📷 Instagram", "site": "🌐 Лендинг", "direct": "🔍 Direct/органика"}
+        src_labels = {"ig": "📷 Instagram", "site": "🌐 Сайт /start", "site_home": "🏠 Главная сайта", "direct": "🔍 Direct/органика"}
         lines.append("")
         lines.append("*По источникам* (Start → цель):")
         for src, started, to_goal in by_source:
