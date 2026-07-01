@@ -2883,6 +2883,8 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
     # Вечерний итог дня — 20:00 по таймзоне пользователя
     try:
         evening_users = db.get_users_for_evening_push()
+        if evening_users:
+            logger.info(f"Evening push: {len(evening_users)} candidate users")
         for user in evening_users:
             tz_offset = user.get("timezone_offset", 3)
             tz = timezone(timedelta(hours=tz_offset))
@@ -2922,6 +2924,7 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="Markdown",
                 )
                 sent_reminders.add(key)
+                logger.info(f"Evening push sent to {uid}")
             except Exception as e:
                 logger.error(f"Failed to send evening push to {uid}: {e}")
     except Exception as e:

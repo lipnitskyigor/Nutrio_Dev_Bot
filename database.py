@@ -362,7 +362,7 @@ class Database:
                       AND EXISTS (
                           SELECT 1 FROM meals m
                           WHERE m.user_id = u.user_id
-                            AND m.day >= CURRENT_DATE - INTERVAL '3 days'
+                            AND m.day::date >= CURRENT_DATE - INTERVAL '3 days'
                       )
                 """)
                 return [dict(row) for row in cur.fetchall()]
