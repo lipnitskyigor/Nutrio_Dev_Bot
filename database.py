@@ -1,4 +1,5 @@
 import os
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
@@ -13,8 +14,23 @@ class Database:
         self.database_url = database_url
         self._init_db()
 
+    @contextmanager
     def _conn(self):
-        return psycopg2.connect(self.database_url)
+        # psycopg2's own connection context manager only commits/rolls back
+        # the transaction on exit, it never closes the socket. Every one of
+        # the ~50 call sites below did `with self._conn() as conn:`, so each
+        # query leaked a physical Postgres connection — the bot would run
+        # fine until the leak hit Postgres's max_connections, at which point
+        # every DB call (including the 20:00 evening push) started failing.
+        conn = psycopg2.connect(self.database_url)
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init_db(self):
         with self._conn() as conn:

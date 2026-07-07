@@ -2428,11 +2428,14 @@ async def resetme_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user_id = update.effective_user.id
     import psycopg2
-    with psycopg2.connect(DATABASE_URL) as conn:
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
         with conn.cursor() as cur:
             for table in ("users", "profiles", "meals", "goals", "weight_log", "weight_goal", "notifications"):
                 cur.execute(f"DELETE FROM {table} WHERE user_id = %s", (user_id,))
         conn.commit()
+    finally:
+        conn.close()
     await update.message.reply_text(t("ru", "resetme_done"))
 
 
@@ -2456,7 +2459,8 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     import psycopg2
-    with psycopg2.connect(DATABASE_URL) as conn:
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(DISTINCT user_id) FROM meals WHERE day >= (CURRENT_DATE - INTERVAL '7 days')::TEXT")
             active_7d = cur.fetchone()[0]
@@ -2468,6 +2472,8 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             meals_today = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM profiles")
             profiles_count = cur.fetchone()[0]
+    finally:
+        conn.close()
 
     stats = db.get_subscription_stats()
 
@@ -2595,7 +2601,8 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError:
             return None
 
-    with psycopg2.connect(DATABASE_URL) as conn:
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT s.user_id,
@@ -2608,6 +2615,8 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 LEFT JOIN users u ON u.user_id = s.user_id
             """)
             rows = cur.fetchall()
+    finally:
+        conn.close()
 
     today = _date.today()
     cutoff = today - _td(days=3)
@@ -2645,7 +2654,8 @@ async def funnel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     import psycopg2
-    with psycopg2.connect(DATABASE_URL) as conn:
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
         with conn.cursor() as cur:
             # Шаг 0: «нажал Start». started_at есть только у новых юзеров после
             # деплоя трекинга. start_to_goal считаем по тому же когорту
@@ -2673,6 +2683,8 @@ async def funnel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for n in range(1, 7):
                 cur.execute("SELECT COUNT(*) FROM subscriptions WHERE onb_step >= %s", (n,))
                 reached[n] = cur.fetchone()[0]
+    finally:
+        conn.close()
 
     lines = ["🪜 *Воронка онбординга*", ""]
 
@@ -2727,7 +2739,8 @@ async def leads_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     import psycopg2.extras
-    with psycopg2.connect(DATABASE_URL) as conn:
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 "SELECT s.user_id, s.free_analyses_used AS used, "
@@ -2740,6 +2753,8 @@ async def leads_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 (FREE_ANALYSES_LIMIT,)
             )
             rows = cur.fetchall()
+    finally:
+        conn.close()
 
     if not rows:
         await update.message.reply_text("Никого: нет юзеров с лимитом без оплаты.")
