@@ -543,20 +543,9 @@ def _calc_weeks_to_goal(current: float, target: float, daily_deficit: int = 500)
 
 # ── Time / editing-mode helpers ────────────────────────────────────
 
-# Города из клавиатур выбора таймзоны → IANA-имена. Хранение имени зоны
-# (а не целого смещения) даёт корректный DST: Киев зимой UTC+2, летом UTC+3.
-_TZ_CITIES = {
-    "kyiv":        "Europe/Kyiv",
-    "moscow":      "Europe/Moscow",
-    "baku":        "Asia/Baku",
-    "almaty":      "Asia/Almaty",
-    "tashkent":    "Asia/Tashkent",
-    "novosibirsk": "Asia/Novosibirsk",
-    "irkutsk":     "Asia/Irkutsk",
-    "vladivostok": "Asia/Vladivostok",
-}
-
-
+# Таймзону юзеры задают вручную текущим временем (фикс-смещение) —
+# городских кнопок сознательно нет: список городов не сделать нейтральным
+# для всей аудитории. tz_name в БД — задел на будущее, сейчас всегда NULL.
 def _load_tz(tz_name: str | None):
     """ZoneInfo по имени или None. Europe/Kyiv появился в tzdata 2022b —
     на старой базе откатываемся на легаси-алиас Europe/Kiev."""
@@ -579,11 +568,6 @@ def _row_tz(row: dict):
     if tz is not None:
         return tz
     return timezone(timedelta(hours=row.get("timezone_offset", 3)))
-
-
-def _tz_current_offset(tz) -> int:
-    """Текущее целочисленное смещение зоны — для фолбэка и подписи UTC±N."""
-    return int(round(datetime.now(tz).utcoffset().total_seconds() / 3600))
 
 
 def _user_now(user_id: int) -> datetime:
@@ -686,49 +670,6 @@ def _notify_keyboard(notif: dict, lang: str = "ru") -> InlineKeyboardMarkup:
             InlineKeyboardButton(f"🕐 {notif['dinner_time']}", callback_data="notif_time_dinner"),
         ],
         [InlineKeyboardButton(t(lang, "btn_notif_change_tz"), callback_data="notif_timezone")],
-    ])
-
-
-def _onboarding_timezone_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(t(lang, "tz_kyiv"),    callback_data="onb_tzn_kyiv"),
-            InlineKeyboardButton(t(lang, "tz_moscow"),  callback_data="onb_tzn_moscow"),
-        ],
-        [
-            InlineKeyboardButton(t(lang, "tz_baku"),    callback_data="onb_tzn_baku"),
-            InlineKeyboardButton(t(lang, "tz_almaty"),  callback_data="onb_tzn_almaty"),
-        ],
-        [
-            InlineKeyboardButton(t(lang, "tz_tashkent"), callback_data="onb_tzn_tashkent"),
-            InlineKeyboardButton(t(lang, "tz_novosibirsk"), callback_data="onb_tzn_novosibirsk"),
-        ],
-        [
-            InlineKeyboardButton(t(lang, "tz_irkutsk"),     callback_data="onb_tzn_irkutsk"),
-            InlineKeyboardButton(t(lang, "tz_vladivostok"), callback_data="onb_tzn_vladivostok"),
-        ],
-        [InlineKeyboardButton(t(lang, "tz_skip"),  callback_data="onb_tz_skip")],
-    ])
-
-
-def _timezone_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(t(lang, "tz_kyiv"),    callback_data="tzn_kyiv"),
-            InlineKeyboardButton(t(lang, "tz_moscow"),  callback_data="tzn_moscow"),
-        ],
-        [
-            InlineKeyboardButton(t(lang, "tz_baku"),    callback_data="tzn_baku"),
-            InlineKeyboardButton(t(lang, "tz_almaty"),  callback_data="tzn_almaty"),
-        ],
-        [
-            InlineKeyboardButton(t(lang, "tz_tashkent"), callback_data="tzn_tashkent"),
-            InlineKeyboardButton(t(lang, "tz_novosibirsk"), callback_data="tzn_novosibirsk"),
-        ],
-        [
-            InlineKeyboardButton(t(lang, "tz_irkutsk"),     callback_data="tzn_irkutsk"),
-            InlineKeyboardButton(t(lang, "tz_vladivostok"), callback_data="tzn_vladivostok"),
-        ],
     ])
 
 
@@ -1945,7 +1886,6 @@ async def _finish_profile(message, user_id: int, context, lang: str = "ru") -> N
     await message.reply_text(
         t(lang, "ask_timezone"),
         parse_mode="Markdown",
-        reply_markup=_onboarding_timezone_keyboard(lang),
     )
 
 
@@ -2169,7 +2109,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             t(lang, "ask_timezone"),
             parse_mode="Markdown",
-            reply_markup=_onboarding_timezone_keyboard(lang),
         )
         return
 
@@ -2319,43 +2258,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "notif_timezone":
-        # Кнопки городов (IANA-зоны с DST) + можно ввести время текстом
         context.user_data["setting_timezone"] = True
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
             t(lang, "notif_timezone_prompt"),
-            parse_mode="Markdown",
-            reply_markup=_timezone_keyboard(lang),
+            parse_mode="Markdown"
         )
-
-    elif data.startswith("onb_tzn_") or data.startswith("tzn_"):
-        # Город → IANA-зона: DST учитывается автоматически (Киев зимой
-        # UTC+2, летом UTC+3). offset сохраняем как фолбэк и для подписи.
-        city = data.rsplit("tzn_", 1)[-1]
-        tz_name = _TZ_CITIES.get(city)
-        tz = _load_tz(tz_name)
-        if tz is None:
-            logger.error(f"Unknown tz city callback: {data}")
-            return
-        offset = _tz_current_offset(tz)
-        if data.startswith("onb_tzn_"):
-            context.user_data.pop("profile_step", None)
-            db.save_notifications(user_id, 1, 1, 1, offset)
-            db.set_timezone(user_id, offset, tz_name)
-            await query.edit_message_reply_markup(reply_markup=None)
-            await query.message.reply_text(
-                t(lang, "onb_tz_saved", tz=_tz_str(offset)),
-                parse_mode="Markdown"
-            )
-        else:
-            context.user_data.pop("setting_timezone", None)
-            db.get_or_create_notifications(user_id)
-            db.set_timezone(user_id, offset, tz_name)
-            notif = db.get_notifications(user_id)
-            await query.edit_message_text(
-                _notify_text(notif, lang), parse_mode="Markdown",
-                reply_markup=_notify_keyboard(notif, lang)
-            )
 
     # Легаси-кнопки с целым смещением — из старых сообщений в чатах
     elif data.startswith("tz_"):
