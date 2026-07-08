@@ -246,7 +246,7 @@ class Database:
                         SUM(carbs) as total_carbs,
                         COUNT(*) as meals_count
                     FROM meals
-                    WHERE user_id = %s AND day >= (CURRENT_DATE - INTERVAL '7 days')::TEXT
+                    WHERE user_id = %s AND day::date >= CURRENT_DATE - INTERVAL '7 days'
                     GROUP BY day ORDER BY day DESC
                 """, (user_id,))
                 return [dict(row) for row in cur.fetchall()]
@@ -330,7 +330,8 @@ class Database:
     # ── Onboarding tips ───────────────────────────────────────────
 
     def get_users_for_weight_tip(self) -> list:
-        """Пользователи, зарегистрированные 2+ дня назад, которым ещё не отправлен тип про вес."""
+        """Пользователи на 2-й день после принятия условий (1+ день назад),
+        которым ещё не отправлена подсказка про вес."""
         with self._conn() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute("""
@@ -367,7 +368,9 @@ class Database:
             conn.commit()
 
     def get_users_for_evening_push(self) -> list:
-        """Пользователи, логировавшие еду в последние 3 дня — для вечернего пуша."""
+        """Пользователи, логировавшие еду в последние 3 дня — для вечернего пуша.
+        Юзеры, выключившие все напоминания, не получают и вечерний итог —
+        это единственный способ отписаться от него."""
         with self._conn() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute("""
@@ -375,6 +378,10 @@ class Database:
                     FROM users u
                     LEFT JOIN notifications n ON n.user_id = u.user_id
                     WHERE u.terms_accepted = 1
+                      AND (n.user_id IS NULL
+                           OR n.breakfast_enabled = 1
+                           OR n.lunch_enabled = 1
+                           OR n.dinner_enabled = 1)
                       AND EXISTS (
                           SELECT 1 FROM meals m
                           WHERE m.user_id = u.user_id
@@ -393,6 +400,14 @@ class Database:
             conn.commit()
 
     # ── Notifications ─────────────────────────────────────────────
+
+    def get_timezone_offset(self, user_id: int) -> int:
+        """Смещение таймзоны юзера в часах; 3 (UTC+3) если не настраивал."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT timezone_offset FROM notifications WHERE user_id = %s", (user_id,))
+                row = cur.fetchone()
+                return row[0] if row else 3
 
     def get_notifications(self, user_id: int):
         with self._conn() as conn:
@@ -568,7 +583,7 @@ class Database:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE subscriptions SET free_analyses_used = free_analyses_used + 1, photo_analyses = photo_analyses + 1 WHERE user_id = %s",
+                    "UPDATE subscriptions SET free_analyses_used = free_analyses_used + 1 WHERE user_id = %s",
                     (user_id,)
                 )
                 cur.execute(
@@ -854,18 +869,25 @@ class Database:
                 return row[0] if row and row[0] else "auto"
 
     def set_tg_language(self, user_id: int, tg_lang: str):
+        # Upsert: у нового юзера строки в users ещё нет (появляется на первом
+        # шаге онбординга), UPDATE был бы молчаливым no-op. First-touch:
+        # уже записанный tg_language не перетираем.
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE users SET tg_language = %s WHERE user_id = %s AND tg_language IS NULL",
-                    (tg_lang, user_id)
-                )
+                cur.execute("""
+                    INSERT INTO users (user_id, tg_language) VALUES (%s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        tg_language = COALESCE(users.tg_language, EXCLUDED.tg_language)
+                """, (user_id, tg_lang))
             conn.commit()
 
     def set_user_language(self, user_id: int, lang: str):
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("UPDATE users SET language = %s WHERE user_id = %s", (lang, user_id))
+                cur.execute("""
+                    INSERT INTO users (user_id, language) VALUES (%s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET language = EXCLUDED.language
+                """, (user_id, lang))
             conn.commit()
 
     def get_all_notification_users(self) -> List[Dict[str, Any]]:

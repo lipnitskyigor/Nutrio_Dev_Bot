@@ -1,17 +1,19 @@
 import os
 import json
+import time
 import base64
 import logging
 import asyncio
 import threading
 import queue
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
 from io import BytesIO
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import anthropic
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice, BotCommand
 from telegram import BotCommandScopeChat
+from telegram.error import BadRequest, Forbidden
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -64,6 +66,12 @@ def _fmt_date(dt, lang: str = "ru") -> str:
     """Дата с локализованным месяцем: «1 января 2099»."""
     months = _MONTHS.get(lang, _MONTHS["en"])
     return f"{dt.day} {months[dt.month - 1]} {dt.year}"
+
+
+def _fmt_day_month(dt, lang: str = "ru") -> str:
+    """Короткая дата без года: «1 января» — strftime %b дал бы английский месяц."""
+    months = _MONTHS.get(lang, _MONTHS["en"])
+    return f"{dt.day} {months[dt.month - 1]}"
 STRIPE_PROVIDER_TOKEN = os.environ.get("STRIPE_PROVIDER_TOKEN", "")
 
 # Stripe Checkout (новая интеграция)
@@ -302,8 +310,7 @@ COMMANDS_BY_LANG = {
         BotCommand("subscribe", "💳 Բաժանորդագրություն"),
         BotCommand("reset",     "🗑 Այսօրը մաքրել"),
         BotCommand("delete",    "❌ Գրառում ջնջել"),
-        BotCommand("diary",     "📔 Օրագիր"),
-        BotCommand("profile",   "👤 Պրոֆիլ"),
+        BotCommand("edit",      "✏️ Խմբագրել գրառումը"),
         BotCommand("help",      "❓ Օգնություն"),
         BotCommand("support",   "💬 Աջակցություն"),
     ],
@@ -533,9 +540,61 @@ def _calc_weeks_to_goal(current: float, target: float, daily_deficit: int = 500)
     return round(diff * 7700 / (daily_deficit * 7))
 
 
+# ── Time / editing-mode helpers ────────────────────────────────────
+
+def _user_now(user_id: int) -> datetime:
+    """Текущее время в таймзоне юзера (UTC+3 по умолчанию).
+    Дата еды и «сегодня» везде считаются по нему, а не по серверному UTC —
+    иначе записи после полуночи локального времени падают во «вчера»
+    и вечерний пуш не находит еду за день."""
+    offset = db.get_timezone_offset(user_id)
+    return datetime.now(timezone(timedelta(hours=offset)))
+
+
+EDIT_MODE_TTL = 600  # секунд; протухший режим «Исправить» = обычная запись еды
+
+
+def _active_editing_id(context) -> int | None:
+    """meal_id активного режима исправления или None, если режим не включён
+    либо протух (юзер нажал ✏️ и забыл — следующий текст не должен
+    молча перезаписывать старую запись)."""
+    meal_id = context.user_data.get("editing_meal_id")
+    if meal_id is None:
+        return None
+    if time.time() - context.user_data.get("editing_since", 0) > EDIT_MODE_TTL:
+        for k in ("editing_meal_id", "editing_meal_description", "editing_since"):
+            context.user_data.pop(k, None)
+        return None
+    return meal_id
+
+
+async def _edit_md(msg, text: str, reply_markup=None):
+    """edit_text с Markdown и фолбэком в plain text: описания еды приходят
+    от Claude и могут содержать непарные */_ — юзер не должен видеть
+    «ошибку анализа» из-за разметки, когда еда уже сохранена."""
+    try:
+        await msg.edit_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    except BadRequest:
+        await msg.edit_text(text, reply_markup=reply_markup)
+
+
 # ── Notifications helpers ──────────────────────────────────────────
 
 sent_reminders: set = set()
+
+
+def _within_window(now: datetime, hhmm: str, window_min: int = 10) -> bool:
+    """Наступило ли время hhmm в пределах окна window_min минут.
+    Сравнение на точное равенство минуты теряло пуши: тик джоба может
+    сдвинуться, а длинный цикл рассылки — выйти за минуту для хвоста списка.
+    Дедупликация — через sent_reminders (ключ содержит дату)."""
+    try:
+        h, m = map(int, hhmm.split(":"))
+    except (ValueError, AttributeError):
+        return False
+    target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+    delta = (now - target).total_seconds()
+    return 0 <= delta < window_min * 60
 
 
 def _tz_str(offset: int) -> str:
@@ -699,7 +758,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.mark_started(user_id, src)
 
     profile = db.get_profile(user_id)
-    meals = db.get_meals_for_day(user_id, date.today().isoformat())
+    meals = db.get_meals_for_day(user_id, _user_now(user_id).strftime("%Y-%m-%d"))
 
     if profile or meals:
         # Returning user
@@ -733,7 +792,7 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = _lang(user_id, update.effective_user.language_code)
     user_name = update.effective_user.first_name or t(lang, "default_friend")
-    today = date.today().isoformat()
+    today = _user_now(user_id).strftime("%Y-%m-%d")
 
     meals = db.get_meals_for_day_with_ids(user_id, today)
 
@@ -799,7 +858,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Format date nicely
         try:
             d = datetime.strptime(day, "%Y-%m-%d")
-            day_str = d.strftime("%-d %b")
+            day_str = _fmt_day_month(d, lang)
         except Exception:
             day_str = day
         if lang == "ru":
@@ -814,7 +873,7 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = _lang(user_id, update.effective_user.language_code)
-    today = date.today().isoformat()
+    today = _user_now(user_id).strftime("%Y-%m-%d")
     db.delete_meals_for_day(user_id, today)
     await update.message.reply_text(t(lang, "reset_done"))
 
@@ -924,7 +983,7 @@ async def progress_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         w = entry["weight"]
         try:
             d = datetime.strptime(entry["day"], "%Y-%m-%d")
-            day_str = d.strftime("%-d %b")
+            day_str = _fmt_day_month(d, lang)
         except Exception:
             day_str = entry["day"]
 
@@ -1151,10 +1210,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text(f"❌ {result['error']}")
             return
 
-        today = date.today().isoformat()
-        now_time = datetime.now().strftime("%H:%M")
+        user_now = _user_now(user_id)
+        today = user_now.strftime("%Y-%m-%d")
+        now_time = user_now.strftime("%H:%M")
 
-        editing_meal_id = context.user_data.get("editing_meal_id")
+        editing_meal_id = _active_editing_id(context)
         if editing_meal_id:
             updated = db.update_meal_by_id(
                 meal_id=editing_meal_id, user_id=user_id,
@@ -1164,8 +1224,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             if updated:
                 meal_id = editing_meal_id
-                context.user_data.pop("editing_meal_id", None)
-                context.user_data.pop("editing_meal_description", None)
                 summary_prefix = t(lang, "corrected_prefix")
             else:
                 meal_id = db.add_meal(
@@ -1174,9 +1232,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     calories=result["calories"], protein=result["protein"],
                     fat=result["fat"], carbs=result["carbs"],
                 )
-                context.user_data.pop("editing_meal_id", None)
-                context.user_data.pop("editing_meal_description", None)
                 summary_prefix = ""
+            for k in ("editing_meal_id", "editing_meal_description", "editing_since"):
+                context.user_data.pop(k, None)
         else:
             meal_id = db.add_meal(
                 user_id=user_id, day=today, time=now_time,
@@ -1191,6 +1249,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         charged = not db.is_paid_active(user_id)
         if charged:
             db.use_free_analysis(user_id)
+        # Счётчик фото-анализов — отдельно от квоты, для всех (и платных)
+        db.increment_photo_analyses(user_id)
 
         meals = db.get_meals_for_day(user_id, today)
         total_cal = sum(m["calories"] for m in meals)
@@ -1198,9 +1258,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         goal = db.get_goal(user_id)
         profile = db.get_profile(user_id)
 
-        await msg.edit_text(
+        await _edit_md(
+            msg,
             summary_prefix + _meal_summary(result, total_cal, total_protein, len(meals), goal, profile, lang),
-            parse_mode="Markdown",
             reply_markup=_meal_keyboard(meal_id, lang),
         )
         if charged:
@@ -1266,7 +1326,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             latest_weight = db.get_latest_weight(user_id)
             weight_goal = db.get_weight_goal(user_id)
-            today = date.today().isoformat()
+            today = _user_now(user_id).strftime("%Y-%m-%d")
             meals = db.get_meals_for_day(user_id, today)
             today_cal = sum(m["calories"] for m in meals)
 
@@ -1476,19 +1536,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ── Режим исправления — пользователь нажал "Исправить" ───────
-    if "editing_meal_id" in context.user_data:
+    editing_id = _active_editing_id(context)
+    if editing_id is not None:
         # Исправление — тоже AI-анализ: без доступа не пересчитываем,
         # иначе кнопка ✏️ превращается в бесплатные анализы после лимита.
         if not db.has_access(user_id):
-            context.user_data.pop("editing_meal_id", None)
-            context.user_data.pop("editing_meal_description", None)
+            for k in ("editing_meal_id", "editing_meal_description", "editing_since"):
+                context.user_data.pop(k, None)
             await update.message.reply_text(
                 _trial_notice(0, lang),
                 parse_mode="Markdown",
                 reply_markup=_paywall_keyboard(lang),
             )
             return
-        meal_id = context.user_data["editing_meal_id"]
+        meal_id = editing_id
         original_description = context.user_data.get("editing_meal_description") or ""
         if not original_description:
             original_meal = db.get_meal_by_id(meal_id, user_id)
@@ -1516,24 +1577,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
             # Успех — чистим стейт редактирования
-            context.user_data.pop("editing_meal_id", None)
-            context.user_data.pop("editing_meal_description", None)
+            for k in ("editing_meal_id", "editing_meal_description", "editing_since"):
+                context.user_data.pop(k, None)
 
             # Пересчёт удался → списываем квоту, как в обычном анализе
             charged = not db.is_paid_active(user_id)
             if charged:
                 db.use_free_analysis(user_id)
 
-            today = date.today().isoformat()
+            today = _user_now(user_id).strftime("%Y-%m-%d")
             meals = db.get_meals_for_day(user_id, today)
             total_cal = sum(m["calories"] for m in meals)
             total_protein = sum(m["protein"] for m in meals)
             goal = db.get_goal(user_id)
             profile = db.get_profile(user_id)
 
-            await msg.edit_text(
+            await _edit_md(
+                msg,
                 t(lang, "corrected_prefix") + _meal_summary(result, total_cal, total_protein, len(meals), goal, profile, lang),
-                parse_mode="Markdown",
                 reply_markup=_meal_keyboard(meal_id, lang),
             )
             if charged:
@@ -1638,8 +1699,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text(f"❌ {result['error']}")
             return
 
-        today = date.today().isoformat()
-        now_time = datetime.now().strftime("%H:%M")
+        user_now = _user_now(user_id)
+        today = user_now.strftime("%Y-%m-%d")
+        now_time = user_now.strftime("%H:%M")
         meal_id = db.add_meal(
             user_id=user_id, day=today, time=now_time,
             food_description=result["food_description"],
@@ -1652,8 +1714,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         charged = not db.is_paid_active(user_id)
         if charged:
             db.use_free_analysis(user_id)
-        else:
-            db.increment_photo_analyses(user_id)
 
         meals = db.get_meals_for_day(user_id, today)
         total_cal = sum(m["calories"] for m in meals)
@@ -1661,9 +1721,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         goal = db.get_goal(user_id)
         profile = db.get_profile(user_id)
 
-        await msg.edit_text(
+        await _edit_md(
+            msg,
             _meal_summary(result, total_cal, total_protein, len(meals), goal, profile, lang),
-            parse_mode="Markdown",
             reply_markup=_meal_keyboard(meal_id, lang),
         )
         if charged:
@@ -1925,7 +1985,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             commands,
             scope=BotCommandScopeChat(chat_id=user_id),
         )
-        await query.edit_message_text(t(chosen, confirm_key))
+        try:
+            await query.edit_message_text(t(chosen, confirm_key))
+        except BadRequest:
+            pass  # повторный выбор того же языка → "message is not modified"
         await query.message.reply_text(
             t(chosen, "menu_add_prompt"),
             reply_markup=_main_keyboard(chosen),
@@ -2034,7 +2097,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("delete_"):
         meal_id = int(data.split("_")[1])
         db.delete_meal_by_id(meal_id, user_id)
-        today = date.today().isoformat()
+        today = _user_now(user_id).strftime("%Y-%m-%d")
         meals = db.get_meals_for_day(user_id, today)
         total_cal = sum(m["calories"] for m in meals)
         total_protein = sum(m["protein"] for m in meals)
@@ -2076,6 +2139,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         original_meal = db.get_meal_by_id(meal_id, user_id)
         context.user_data["editing_meal_id"] = meal_id
         context.user_data["editing_meal_description"] = original_meal["food_description"] if original_meal else ""
+        context.user_data["editing_since"] = time.time()
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(t(lang, "edit_prompt"))
 
@@ -2341,7 +2405,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = _lang(user_id, update.effective_user.language_code)
-    today = date.today().isoformat()
+    today = _user_now(user_id).strftime("%Y-%m-%d")
 
     if not context.args:
         await update.message.reply_text(
@@ -2386,7 +2450,7 @@ async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = _lang(user_id, update.effective_user.language_code)
-    today = date.today().isoformat()
+    today = _user_now(user_id).strftime("%Y-%m-%d")
 
     if not context.args or len(context.args) < 2:
         await update.message.reply_text(
@@ -2455,14 +2519,14 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_cal = sum(m["calories"] for m in updated)
         total_protein = sum(m["protein"] for m in updated)
 
-        await msg.edit_text(
+        await _edit_md(
+            msg,
             t(lang, "edit_done",
               num=num,
               food=result['food_description'],
               cal=result['calories'], protein=result['protein'],
               fat=result['fat'], carbs=result['carbs'],
               total_cal=total_cal, total_protein=total_protein),
-            parse_mode="Markdown"
         )
         if charged:
             left = db.get_free_analyses_left(user_id)
@@ -2487,7 +2551,7 @@ async def resetme_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = psycopg2.connect(DATABASE_URL)
     try:
         with conn.cursor() as cur:
-            for table in ("users", "profiles", "meals", "goals", "weight_log", "weight_goal", "notifications"):
+            for table in ("users", "profiles", "meals", "goals", "weight_log", "weight_goal", "notifications", "subscriptions"):
                 cur.execute(f"DELETE FROM {table} WHERE user_id = %s", (user_id,))
         conn.commit()
     finally:
@@ -2518,9 +2582,9 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = psycopg2.connect(DATABASE_URL)
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(DISTINCT user_id) FROM meals WHERE day >= (CURRENT_DATE - INTERVAL '7 days')::TEXT")
+            cur.execute("SELECT COUNT(DISTINCT user_id) FROM meals WHERE day::date >= CURRENT_DATE - INTERVAL '7 days'")
             active_7d = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(DISTINCT user_id) FROM meals WHERE day >= (CURRENT_DATE - INTERVAL '30 days')::TEXT")
+            cur.execute("SELECT COUNT(DISTINCT user_id) FROM meals WHERE day::date >= CURRENT_DATE - INTERVAL '30 days'")
             active_30d = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM meals")
             total_meals = cur.fetchone()[0]
@@ -2893,8 +2957,6 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
 
 async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
     """Джоб запускается каждую минуту — рассылает напоминания о приёмах пищи."""
-    from datetime import timezone, timedelta
-
     # Чистим старые ключи (старше сегодня) чтобы set не рос бесконечно
     cutoff = datetime.utcnow().strftime("%Y-%m-%d")
     stale = {k for k in sent_reminders if k.split(":")[-1] < cutoff}
@@ -2906,7 +2968,6 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
             tz_offset = user.get("timezone_offset", 3)
             tz = timezone(timedelta(hours=tz_offset))
             now = datetime.now(tz)
-            current_time = now.strftime("%H:%M")
             today = now.strftime("%Y-%m-%d")
 
             meals_to_check = [
@@ -2916,7 +2977,7 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
             ]
 
             for meal_type, enabled, meal_time, emoji in meals_to_check:
-                if not enabled or meal_time != current_time:
+                if not enabled or not _within_window(now, meal_time):
                     continue
                 key = f"{user['user_id']}:{meal_type}:{today}"
                 if key in sent_reminders:
@@ -2963,7 +3024,7 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
             tz_offset = user.get("timezone_offset", 3)
             tz = timezone(timedelta(hours=tz_offset))
             now = datetime.now(tz)
-            if now.strftime("%H:%M") != "20:00":
+            if not _within_window(now, "20:00"):
                 continue
             uid = user["user_id"]
             key = f"{uid}:evening:{now.strftime('%Y-%m-%d')}"
@@ -3011,7 +3072,7 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
             tz_offset = user.get("timezone_offset", 3)
             tz = timezone(timedelta(hours=tz_offset))
             now = datetime.now(tz)
-            if now.strftime("%H:%M") != "09:00":
+            if not _within_window(now, "09:00"):
                 continue
             try:
                 user_lang = db.get_user_language(user["user_id"])
@@ -3022,6 +3083,9 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
                     text=t(user_lang, "weight_tip"),
                     parse_mode="Markdown",
                 )
+                db.mark_weight_tip_sent(user["user_id"])
+            except Forbidden:
+                # Юзер заблокировал бота — помечаем, чтобы не ретраить вечно
                 db.mark_weight_tip_sent(user["user_id"])
             except Exception as e:
                 logger.error(f"Failed to send weight tip to {user['user_id']}: {e}")
@@ -3104,6 +3168,9 @@ async def send_winback(context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=_paywall_keyboard(lang),
             )
             db.mark_winback_sent(uid)
+        except Forbidden:
+            # Юзер заблокировал бота — помечаем, чтобы не ретраить каждый час
+            db.mark_winback_sent(uid)
         except Exception as e:
             logger.error(f"Failed to send winback to {uid}: {e}")
 
@@ -3160,6 +3227,12 @@ def main():
             "es": "Escáner de calorías IA + diario de nutrición y peso 🍎",
             "pt": "Scanner de calorias IA + diário de nutrição e peso 🍎",
             "ar": "ماسح سعرات AI + يوميات التغذية والوزن 🍎",
+            "kk": "AI калория сканері + тамақтану және салмақ күнделігі 🍎",
+            "hi": "AI कैलोरी स्कैनर + पोषण और वज़न डायरी 🍎",
+            "az": "AI kalori skaneri + qida və çəki gündəliyi 🍎",
+            "hy": "AI կալորիաների սկաներ + սննդի և քաշի օրագիր 🍎",
+            "uz": "AI kaloriya skaneri + ovqatlanish va vazn kundaligi 🍎",
+            "ka": "AI კალორიების სკანერი + კვების და წონის დღიური 🍎",
         }
 
         # ── 3. Полное описание (до /start, до 512 символов) ───────────
@@ -3236,6 +3309,54 @@ def main():
                 "⚖️ متتبع الوزن والتقدم\n"
                 "🔔 تذكيرات الوجبات\n"
                 "🎯 أهداف السعرات الشخصية"
+            ),
+            "kk": (
+                "Тамақ фотосын жібер — секунд ішінде калория мен БЖК ал.\n\n"
+                "📸 Фото және мәтін бойынша талдау\n"
+                "📔 Тарихы бар тамақтану күнделігі\n"
+                "⚖️ Салмақ пен прогресс трекері\n"
+                "🔔 Тамақтану еске салулары\n"
+                "🎯 Жеке калория мақсаттары"
+            ),
+            "hi": (
+                "खाने की फोटो भेजें — सेकंडों में कैलोरी और मैक्रोज़ पाएं।\n\n"
+                "📸 फोटो और टेक्स्ट से विश्लेषण\n"
+                "📔 इतिहास के साथ पोषण डायरी\n"
+                "⚖️ वज़न और प्रगति ट्रैकर\n"
+                "🔔 भोजन रिमाइंडर\n"
+                "🎯 व्यक्तिगत कैलोरी लक्ष्य"
+            ),
+            "az": (
+                "Yemək fotosunu göndər — saniyələr içində kalori və makrolar əldə et.\n\n"
+                "📸 Foto və mətnlə analiz\n"
+                "📔 Tarixçəli qida gündəliyi\n"
+                "⚖️ Çəki və irəliləyiş izləyicisi\n"
+                "🔔 Yemək xatırlatmaları\n"
+                "🎯 Fərdi kalori hədəfləri"
+            ),
+            "hy": (
+                "Ուղարկիր ուտելիքի լուսանկար — ստացիր կալորիաները վայրկյանների ընթացքում։\n\n"
+                "📸 Վերլուծություն լուսանկարով և տեքստով\n"
+                "📔 Սննդի օրագիր պատմությամբ\n"
+                "⚖️ Քաշի և առաջընթացի հետևում\n"
+                "🔔 Սննդի հիշեցումներ\n"
+                "🎯 Անհատական կալորիաների նպատակներ"
+            ),
+            "uz": (
+                "Ovqat fotosini yubor — soniyalarda kaloriya va makrolarni ol.\n\n"
+                "📸 Foto va matn orqali tahlil\n"
+                "📔 Tarixli ovqatlanish kundaligi\n"
+                "⚖️ Vazn va progress trekeri\n"
+                "🔔 Ovqatlanish eslatmalari\n"
+                "🎯 Shaxsiy kaloriya maqsadlari"
+            ),
+            "ka": (
+                "გაგზავნე საჭმლის ფოტო — მიიღე კალორიები და მაკროები წამებში.\n\n"
+                "📸 ანალიზი ფოტოთი და ტექსტით\n"
+                "📔 კვების დღიური ისტორიით\n"
+                "⚖️ წონისა და პროგრესის ტრეკერი\n"
+                "🔔 კვების შეხსენებები\n"
+                "🎯 პერსონალური კალორიის მიზნები"
             ),
         }
 
