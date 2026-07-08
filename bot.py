@@ -7,6 +7,7 @@ import asyncio
 import threading
 import queue
 from datetime import datetime, date, timezone, timedelta
+from zoneinfo import ZoneInfo
 from io import BytesIO
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -542,13 +543,57 @@ def _calc_weeks_to_goal(current: float, target: float, daily_deficit: int = 500)
 
 # ── Time / editing-mode helpers ────────────────────────────────────
 
+# Города из клавиатур выбора таймзоны → IANA-имена. Хранение имени зоны
+# (а не целого смещения) даёт корректный DST: Киев зимой UTC+2, летом UTC+3.
+_TZ_CITIES = {
+    "kyiv":        "Europe/Kyiv",
+    "moscow":      "Europe/Moscow",
+    "baku":        "Asia/Baku",
+    "almaty":      "Asia/Almaty",
+    "tashkent":    "Asia/Tashkent",
+    "novosibirsk": "Asia/Novosibirsk",
+    "irkutsk":     "Asia/Irkutsk",
+    "vladivostok": "Asia/Vladivostok",
+}
+
+
+def _load_tz(tz_name: str | None):
+    """ZoneInfo по имени или None. Europe/Kyiv появился в tzdata 2022b —
+    на старой базе откатываемся на легаси-алиас Europe/Kiev."""
+    if not tz_name:
+        return None
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        if tz_name == "Europe/Kyiv":
+            try:
+                return ZoneInfo("Europe/Kiev")
+            except Exception:
+                return None
+        return None
+
+
+def _row_tz(row: dict):
+    """tzinfo из строки БД: IANA-зона, если сохранена, иначе фикс-смещение."""
+    tz = _load_tz(row.get("tz_name"))
+    if tz is not None:
+        return tz
+    return timezone(timedelta(hours=row.get("timezone_offset", 3)))
+
+
+def _tz_current_offset(tz) -> int:
+    """Текущее целочисленное смещение зоны — для фолбэка и подписи UTC±N."""
+    return int(round(datetime.now(tz).utcoffset().total_seconds() / 3600))
+
+
 def _user_now(user_id: int) -> datetime:
     """Текущее время в таймзоне юзера (UTC+3 по умолчанию).
     Дата еды и «сегодня» везде считаются по нему, а не по серверному UTC —
     иначе записи после полуночи локального времени падают во «вчера»
     и вечерний пуш не находит еду за день."""
-    offset = db.get_timezone_offset(user_id)
-    return datetime.now(timezone(timedelta(hours=offset)))
+    tz_name, offset = db.get_user_tz(user_id)
+    tz = _load_tz(tz_name) or timezone(timedelta(hours=offset))
+    return datetime.now(tz)
 
 
 EDIT_MODE_TTL = 600  # секунд; протухший режим «Исправить» = обычная запись еды
@@ -647,20 +692,20 @@ def _notify_keyboard(notif: dict, lang: str = "ru") -> InlineKeyboardMarkup:
 def _onboarding_timezone_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(t(lang, "tz_kyiv"),    callback_data="onb_tz_2"),
-            InlineKeyboardButton(t(lang, "tz_moscow"),  callback_data="onb_tz_3"),
+            InlineKeyboardButton(t(lang, "tz_kyiv"),    callback_data="onb_tzn_kyiv"),
+            InlineKeyboardButton(t(lang, "tz_moscow"),  callback_data="onb_tzn_moscow"),
         ],
         [
-            InlineKeyboardButton(t(lang, "tz_baku"),    callback_data="onb_tz_4"),
-            InlineKeyboardButton(t(lang, "tz_almaty"),  callback_data="onb_tz_5"),
+            InlineKeyboardButton(t(lang, "tz_baku"),    callback_data="onb_tzn_baku"),
+            InlineKeyboardButton(t(lang, "tz_almaty"),  callback_data="onb_tzn_almaty"),
         ],
         [
-            InlineKeyboardButton(t(lang, "tz_tashkent"), callback_data="onb_tz_5"),
-            InlineKeyboardButton(t(lang, "tz_novosibirsk"), callback_data="onb_tz_7"),
+            InlineKeyboardButton(t(lang, "tz_tashkent"), callback_data="onb_tzn_tashkent"),
+            InlineKeyboardButton(t(lang, "tz_novosibirsk"), callback_data="onb_tzn_novosibirsk"),
         ],
         [
-            InlineKeyboardButton(t(lang, "tz_irkutsk"),     callback_data="onb_tz_8"),
-            InlineKeyboardButton(t(lang, "tz_vladivostok"), callback_data="onb_tz_10"),
+            InlineKeyboardButton(t(lang, "tz_irkutsk"),     callback_data="onb_tzn_irkutsk"),
+            InlineKeyboardButton(t(lang, "tz_vladivostok"), callback_data="onb_tzn_vladivostok"),
         ],
         [InlineKeyboardButton(t(lang, "tz_skip"),  callback_data="onb_tz_skip")],
     ])
@@ -669,20 +714,20 @@ def _onboarding_timezone_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
 def _timezone_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(t(lang, "tz_kyiv"),    callback_data="tz_2"),
-            InlineKeyboardButton(t(lang, "tz_moscow"),  callback_data="tz_3"),
+            InlineKeyboardButton(t(lang, "tz_kyiv"),    callback_data="tzn_kyiv"),
+            InlineKeyboardButton(t(lang, "tz_moscow"),  callback_data="tzn_moscow"),
         ],
         [
-            InlineKeyboardButton(t(lang, "tz_baku"),    callback_data="tz_4"),
-            InlineKeyboardButton(t(lang, "tz_almaty"),  callback_data="tz_5"),
+            InlineKeyboardButton(t(lang, "tz_baku"),    callback_data="tzn_baku"),
+            InlineKeyboardButton(t(lang, "tz_almaty"),  callback_data="tzn_almaty"),
         ],
         [
-            InlineKeyboardButton(t(lang, "tz_tashkent"), callback_data="tz_5"),
-            InlineKeyboardButton(t(lang, "tz_novosibirsk"), callback_data="tz_7"),
+            InlineKeyboardButton(t(lang, "tz_tashkent"), callback_data="tzn_tashkent"),
+            InlineKeyboardButton(t(lang, "tz_novosibirsk"), callback_data="tzn_novosibirsk"),
         ],
         [
-            InlineKeyboardButton(t(lang, "tz_irkutsk"),     callback_data="tz_8"),
-            InlineKeyboardButton(t(lang, "tz_vladivostok"), callback_data="tz_10"),
+            InlineKeyboardButton(t(lang, "tz_irkutsk"),     callback_data="tzn_irkutsk"),
+            InlineKeyboardButton(t(lang, "tz_vladivostok"), callback_data="tzn_vladivostok"),
         ],
     ])
 
@@ -1194,7 +1239,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     msg = await update.message.reply_text(t(lang, "analyzing_photo"))
 
+    # Резервируем скан атомарно ДО анализа — два параллельных фото при
+    # одном оставшемся скане не спишут два. При неудаче анализа — возврат;
+    # после сохранения блюда (saved) скан уже потрачен честно.
+    charged = False
+    saved = False
     try:
+        if not db.is_paid_active(user_id):
+            if not db.reserve_free_analysis(user_id):
+                await msg.edit_text(_trial_notice(0, lang), parse_mode="Markdown",
+                                    reply_markup=_paywall_keyboard(lang))
+                return
+            charged = True
+
         photo = update.message.photo[-1]
         photo_file = await photo.get_file()
         buf = BytesIO()
@@ -1207,6 +1264,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         if "error" in result:
+            if charged:
+                db.refund_free_analysis(user_id)
             await msg.edit_text(f"❌ {result['error']}")
             return
 
@@ -1243,12 +1302,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 fat=result["fat"], carbs=result["carbs"],
             )
             summary_prefix = ""
+        saved = True
 
-        # Анализ удался и блюдо сохранено → списываем квоту сразу,
-        # до Markdown-рендера ниже, который может упасть и пропустить счётчик.
-        charged = not db.is_paid_active(user_id)
-        if charged:
-            db.use_free_analysis(user_id)
         # Счётчик фото-анализов — отдельно от квоты, для всех (и платных)
         db.increment_photo_analyses(user_id)
 
@@ -1275,9 +1330,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _maybe_send_profile_prompt(update.message, user_id, context, lang)
 
     except json.JSONDecodeError:
+        if charged and not saved:
+            db.refund_free_analysis(user_id)
         logger.error("Failed to parse Claude response as JSON")
         await msg.edit_text(t(lang, "analysis_error_parse"))
     except Exception as e:
+        if charged and not saved:
+            db.refund_free_analysis(user_id)
         logger.error(f"Error processing photo: {e}")
         await msg.edit_text(t(lang, "analysis_error_photo"))
 
@@ -1523,6 +1582,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 offset += 24
             context.user_data.pop("profile_step", None)
             db.save_notifications(user_id, 1, 1, 1, offset)
+            db.set_timezone(user_id, offset, None)  # ручной ввод → IANA-зону сбрасываем
             sign = "+" if offset >= 0 else ""
             await update.message.reply_text(
                 t(lang, "notif_tz_saved", tz=f"UTC{sign}{offset}"),
@@ -1556,7 +1616,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not original_description and original_meal:
             original_description = original_meal["food_description"]
         msg = await update.message.reply_text(t(lang, "recalculating"))
+        # Атомарный резерв скана до анализа + возврат при неудаче (см. handle_photo)
+        charged = False
+        saved = False
         try:
+            if not free_correction and not db.is_paid_active(user_id):
+                if not db.reserve_free_analysis(user_id):
+                    for k in ("editing_meal_id", "editing_meal_description", "editing_since"):
+                        context.user_data.pop(k, None)
+                    await msg.edit_text(_trial_notice(0, lang), parse_mode="Markdown",
+                                        reply_markup=_paywall_keyboard(lang))
+                    return
+                charged = True
+
             if original_description:
                 result = await asyncio.get_running_loop().run_in_executor(
                     None, analyze_food_correction, original_description, text, lang
@@ -1566,6 +1638,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     None, analyze_food_text, text, lang
                 )
             if "error" in result:
+                if charged:
+                    db.refund_free_analysis(user_id)
                 await msg.edit_text(f"❌ {result['error']}")
                 return
 
@@ -1575,17 +1649,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 calories=result["calories"], protein=result["protein"],
                 fat=result["fat"], carbs=result["carbs"],
             )
+            saved = True
 
             # Успех — чистим стейт редактирования
             for k in ("editing_meal_id", "editing_meal_description", "editing_since"):
                 context.user_data.pop(k, None)
 
-            # Пересчёт удался → фиксируем исправление; скан списываем
-            # только если бесплатное исправление записи уже потрачено.
+            # Фиксируем исправление — следующее по этой записи уже платное
             db.increment_meal_corrections(meal_id, user_id)
-            charged = not free_correction and not db.is_paid_active(user_id)
-            if charged:
-                db.use_free_analysis(user_id)
 
             today = _user_now(user_id).strftime("%Y-%m-%d")
             meals = db.get_meals_for_day(user_id, today)
@@ -1609,6 +1680,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         reply_markup=_paywall_keyboard(lang) if left == 0 else None,
                     )
         except Exception as e:
+            if charged and not saved:
+                db.refund_free_analysis(user_id)
             logger.error(f"Error in editing flow: {e}")
             await msg.edit_text(t(lang, "correction_error"))
             # Не чистим стейт — пользователь может попробовать снова
@@ -1629,9 +1702,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif offset < -12:
                 offset += 24
             context.user_data.pop("setting_timezone", None)
-            notif = db.get_or_create_notifications(user_id)
-            db.save_notifications(user_id, notif["breakfast_enabled"],
-                                  notif["lunch_enabled"], notif["dinner_enabled"], offset)
+            db.get_or_create_notifications(user_id)
+            db.set_timezone(user_id, offset, None)  # ручной ввод → IANA-зону сбрасываем
             sign = "+" if offset >= 0 else ""
             notif = db.get_notifications(user_id)
             await update.message.reply_text(
@@ -1692,12 +1764,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = await update.message.reply_text(t(lang, "counting_calories"))
 
+    # Атомарный резерв скана до анализа + возврат при неудаче (см. handle_photo)
+    charged = False
+    saved = False
     try:
+        if not db.is_paid_active(user_id):
+            if not db.reserve_free_analysis(user_id):
+                await msg.edit_text(_trial_notice(0, lang), parse_mode="Markdown",
+                                    reply_markup=_paywall_keyboard(lang))
+                return
+            charged = True
+
         result = await asyncio.get_running_loop().run_in_executor(
             None, analyze_food_text, text, lang
         )
 
         if "error" in result:
+            if charged:
+                db.refund_free_analysis(user_id)
             await msg.edit_text(f"❌ {result['error']}")
             return
 
@@ -1710,12 +1794,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             calories=result["calories"], protein=result["protein"],
             fat=result["fat"], carbs=result["carbs"],
         )
-
-        # Анализ удался и блюдо сохранено → списываем квоту сразу,
-        # до Markdown-рендера ниже, который может упасть и пропустить счётчик.
-        charged = not db.is_paid_active(user_id)
-        if charged:
-            db.use_free_analysis(user_id)
+        saved = True
 
         meals = db.get_meals_for_day(user_id, today)
         total_cal = sum(m["calories"] for m in meals)
@@ -1740,8 +1819,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _maybe_send_profile_prompt(update.message, user_id, context, lang)
 
     except json.JSONDecodeError:
+        if charged and not saved:
+            db.refund_free_analysis(user_id)
         await msg.edit_text(t(lang, "analysis_error_text"))
     except Exception as e:
+        if charged and not saved:
+            db.refund_free_analysis(user_id)
         logger.error(f"Error processing text: {e}")
         await msg.edit_text(t(lang, "analysis_error_generic"))
 
@@ -1861,7 +1944,8 @@ async def _finish_profile(message, user_id: int, context, lang: str = "ru") -> N
     context.user_data["profile_step"] = "timezone"
     await message.reply_text(
         t(lang, "ask_timezone"),
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=_onboarding_timezone_keyboard(lang),
     )
 
 
@@ -2085,6 +2169,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(
             t(lang, "ask_timezone"),
             parse_mode="Markdown",
+            reply_markup=_onboarding_timezone_keyboard(lang),
         )
         return
 
@@ -2234,23 +2319,49 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "notif_timezone":
+        # Кнопки городов (IANA-зоны с DST) + можно ввести время текстом
         context.user_data["setting_timezone"] = True
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_text(
             t(lang, "notif_timezone_prompt"),
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=_timezone_keyboard(lang),
         )
 
+    elif data.startswith("onb_tzn_") or data.startswith("tzn_"):
+        # Город → IANA-зона: DST учитывается автоматически (Киев зимой
+        # UTC+2, летом UTC+3). offset сохраняем как фолбэк и для подписи.
+        city = data.rsplit("tzn_", 1)[-1]
+        tz_name = _TZ_CITIES.get(city)
+        tz = _load_tz(tz_name)
+        if tz is None:
+            logger.error(f"Unknown tz city callback: {data}")
+            return
+        offset = _tz_current_offset(tz)
+        if data.startswith("onb_tzn_"):
+            context.user_data.pop("profile_step", None)
+            db.save_notifications(user_id, 1, 1, 1, offset)
+            db.set_timezone(user_id, offset, tz_name)
+            await query.edit_message_reply_markup(reply_markup=None)
+            await query.message.reply_text(
+                t(lang, "onb_tz_saved", tz=_tz_str(offset)),
+                parse_mode="Markdown"
+            )
+        else:
+            context.user_data.pop("setting_timezone", None)
+            db.get_or_create_notifications(user_id)
+            db.set_timezone(user_id, offset, tz_name)
+            notif = db.get_notifications(user_id)
+            await query.edit_message_text(
+                _notify_text(notif, lang), parse_mode="Markdown",
+                reply_markup=_notify_keyboard(notif, lang)
+            )
+
+    # Легаси-кнопки с целым смещением — из старых сообщений в чатах
     elif data.startswith("tz_"):
         offset = int(data[3:])
-        notif = db.get_or_create_notifications(user_id)
-        db.save_notifications(
-            user_id,
-            notif["breakfast_enabled"],
-            notif["lunch_enabled"],
-            notif["dinner_enabled"],
-            offset,
-        )
+        db.get_or_create_notifications(user_id)
+        db.set_timezone(user_id, offset, None)
         notif = db.get_notifications(user_id)
         await query.edit_message_text(
             _notify_text(notif, lang), parse_mode="Markdown",
@@ -2260,11 +2371,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("onb_tz_"):
         val = data[len("onb_tz_"):]
         if val == "skip":
+            context.user_data.pop("profile_step", None)
             await query.edit_message_reply_markup(reply_markup=None)
             await query.message.reply_text(t(lang, "onb_tz_skip"))
         else:
             offset = int(val)
             db.save_notifications(user_id, 1, 1, 1, offset)
+            db.set_timezone(user_id, offset, None)
             tz_label = _tz_str(offset)
             await query.edit_message_reply_markup(reply_markup=None)
             await query.message.reply_text(
@@ -2497,12 +2610,24 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = await update.message.reply_text(t(lang, "recalculating"))
 
+    # Атомарный резерв скана до анализа + возврат при неудаче (см. handle_photo)
+    charged = False
+    saved = False
     try:
+        if not free_correction and not db.is_paid_active(user_id):
+            if not db.reserve_free_analysis(user_id):
+                await msg.edit_text(_trial_notice(0, lang), parse_mode="Markdown",
+                                    reply_markup=_paywall_keyboard(lang))
+                return
+            charged = True
+
         result = await asyncio.get_running_loop().run_in_executor(
             None, analyze_food_correction, meal["food_description"], new_description, lang
         )
 
         if "error" in result:
+            if charged:
+                db.refund_free_analysis(user_id)
             await msg.edit_text(f"❌ {result['error']}")
             return
 
@@ -2515,11 +2640,9 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fat=result["fat"],
             carbs=result["carbs"],
         )
+        saved = True
 
         db.increment_meal_corrections(meal["id"], user_id)
-        charged = not free_correction and not db.is_paid_active(user_id)
-        if charged:
-            db.use_free_analysis(user_id)
 
         updated = db.get_meals_for_day_with_ids(user_id, today)
         total_cal = sum(m["calories"] for m in updated)
@@ -2545,6 +2668,8 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
 
     except Exception as e:
+        if charged and not saved:
+            db.refund_free_analysis(user_id)
         logger.error(f"Error in edit_command: {e}")
         await msg.edit_text(t(lang, "correction_error"))
 
@@ -2971,9 +3096,7 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
     try:
         users = db.get_all_notification_users()
         for user in users:
-            tz_offset = user.get("timezone_offset", 3)
-            tz = timezone(timedelta(hours=tz_offset))
-            now = datetime.now(tz)
+            now = datetime.now(_row_tz(user))
             today = now.strftime("%Y-%m-%d")
 
             meals_to_check = [
@@ -3027,9 +3150,7 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
         if evening_users:
             logger.info(f"Evening push: {len(evening_users)} candidate users")
         for user in evening_users:
-            tz_offset = user.get("timezone_offset", 3)
-            tz = timezone(timedelta(hours=tz_offset))
-            now = datetime.now(tz)
+            now = datetime.now(_row_tz(user))
             if not _within_window(now, "20:00"):
                 continue
             uid = user["user_id"]
@@ -3075,9 +3196,7 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
     try:
         tip_users = db.get_users_for_weight_tip()
         for user in tip_users:
-            tz_offset = user.get("timezone_offset", 3)
-            tz = timezone(timedelta(hours=tz_offset))
-            now = datetime.now(tz)
+            now = datetime.now(_row_tz(user))
             if not _within_window(now, "09:00"):
                 continue
             try:

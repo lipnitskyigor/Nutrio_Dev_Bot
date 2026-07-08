@@ -147,6 +147,9 @@ class Database:
                     # Сколько раз запись исправляли (✏️ / /edit). Первое исправление
                     # каждой записи бесплатно, дальше списывается скан.
                     "ALTER TABLE meals ADD COLUMN IF NOT EXISTS corrections_used INTEGER NOT NULL DEFAULT 0",
+                    # IANA-имя таймзоны (Europe/Kyiv и т.п.) — учитывает DST.
+                    # NULL → фолбэк на целочисленный timezone_offset.
+                    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS tz_name TEXT DEFAULT NULL",
                 ]:
                     cur.execute(col_def)
             conn.commit()
@@ -348,7 +351,8 @@ class Database:
         with self._conn() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT u.user_id, COALESCE(n.timezone_offset, 3) as timezone_offset
+                    SELECT u.user_id, COALESCE(n.timezone_offset, 3) as timezone_offset,
+                           n.tz_name
                     FROM users u
                     LEFT JOIN notifications n ON n.user_id = u.user_id
                     WHERE u.terms_accepted = 1
@@ -387,7 +391,8 @@ class Database:
         with self._conn() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT u.user_id, COALESCE(n.timezone_offset, 3) as timezone_offset
+                    SELECT u.user_id, COALESCE(n.timezone_offset, 3) as timezone_offset,
+                           n.tz_name
                     FROM users u
                     LEFT JOIN notifications n ON n.user_id = u.user_id
                     WHERE u.terms_accepted = 1
@@ -414,13 +419,28 @@ class Database:
 
     # ── Notifications ─────────────────────────────────────────────
 
-    def get_timezone_offset(self, user_id: int) -> int:
-        """Смещение таймзоны юзера в часах; 3 (UTC+3) если не настраивал."""
+    def get_user_tz(self, user_id: int) -> tuple:
+        """(tz_name, offset) юзера; (None, 3) если не настраивал.
+        tz_name — IANA-имя с учётом DST, offset — целочисленный фолбэк."""
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT timezone_offset FROM notifications WHERE user_id = %s", (user_id,))
+                cur.execute("SELECT tz_name, timezone_offset FROM notifications WHERE user_id = %s", (user_id,))
                 row = cur.fetchone()
-                return row[0] if row else 3
+                return (row[0], row[1]) if row else (None, 3)
+
+    def set_timezone(self, user_id: int, offset: int, tz_name: str = None):
+        """Сохраняет таймзону, не трогая тумблеры напоминаний.
+        tz_name=None — юзер задал смещение вручную, IANA-зона сбрасывается."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO notifications (user_id, timezone_offset, tz_name)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        timezone_offset = EXCLUDED.timezone_offset,
+                        tz_name         = EXCLUDED.tz_name
+                """, (user_id, offset, tz_name))
+            conn.commit()
 
     def get_notifications(self, user_id: int):
         with self._conn() as conn:
@@ -592,17 +612,41 @@ class Database:
             exp = datetime.fromisoformat(exp)
         return exp > datetime.now()
 
-    def use_free_analysis(self, user_id: int):
+    def reserve_free_analysis(self, user_id: int) -> bool:
+        """Атомарно занимает один бесплатный анализ ДО запуска AI.
+        False — лимит уже исчерпан. Условие в UPDATE закрывает гонку:
+        два параллельных фото при одном оставшемся скане не спишут два."""
+        self.init_subscription(user_id)
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE subscriptions SET free_analyses_used = free_analyses_used + 1 WHERE user_id = %s",
-                    (user_id,)
-                )
-                cur.execute(
-                    "UPDATE subscriptions SET trial_ended_at = NOW() "
-                    "WHERE user_id = %s AND free_analyses_used >= %s AND trial_ended_at IS NULL",
+                    "UPDATE subscriptions SET free_analyses_used = free_analyses_used + 1 "
+                    "WHERE user_id = %s AND free_analyses_used < %s",
                     (user_id, FREE_ANALYSES_LIMIT)
+                )
+                reserved = cur.rowcount > 0
+                if reserved:
+                    cur.execute(
+                        "UPDATE subscriptions SET trial_ended_at = NOW() "
+                        "WHERE user_id = %s AND free_analyses_used >= %s AND trial_ended_at IS NULL",
+                        (user_id, FREE_ANALYSES_LIMIT)
+                    )
+            conn.commit()
+        return reserved
+
+    def refund_free_analysis(self, user_id: int):
+        """Возвращает скан, зарезервированный reserve_free_analysis,
+        если анализ не удался. Снимает trial_ended_at, если резерв
+        только что довёл счётчик до лимита."""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE subscriptions SET "
+                    "  free_analyses_used = GREATEST(free_analyses_used - 1, 0), "
+                    "  trial_ended_at = CASE WHEN free_analyses_used - 1 < %s "
+                    "                        THEN NULL ELSE trial_ended_at END "
+                    "WHERE user_id = %s",
+                    (FREE_ANALYSES_LIMIT, user_id)
                 )
             conn.commit()
 
