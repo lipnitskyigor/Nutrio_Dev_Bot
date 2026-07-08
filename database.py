@@ -144,6 +144,9 @@ class Database:
                     # Источник перехода (deep-link ?start=<src>): ig / site / NULL=direct.
                     # First-touch: пишется вместе со started_at, у вернувшихся не перетирается.
                     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS source TEXT DEFAULT NULL",
+                    # Сколько раз запись исправляли (✏️ / /edit). Первое исправление
+                    # каждой записи бесплатно, дальше списывается скан.
+                    "ALTER TABLE meals ADD COLUMN IF NOT EXISTS corrections_used INTEGER NOT NULL DEFAULT 0",
                 ]:
                     cur.execute(col_def)
             conn.commit()
@@ -202,7 +205,7 @@ class Database:
         with self._conn() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT id, food_description, calories, protein, fat, carbs, time
+                    SELECT id, food_description, calories, protein, fat, carbs, time, corrections_used
                     FROM meals WHERE user_id = %s AND day = %s
                     ORDER BY created_at ASC
                 """, (user_id, day))
@@ -219,6 +222,16 @@ class Database:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM meals WHERE id = %s AND user_id = %s", (meal_id, user_id))
+            conn.commit()
+
+    def increment_meal_corrections(self, meal_id: int, user_id: int):
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE meals SET corrections_used = corrections_used + 1 "
+                    "WHERE id = %s AND user_id = %s",
+                    (meal_id, user_id)
+                )
             conn.commit()
 
     def update_meal_by_id(self, meal_id: int, user_id: int, food_description: str,

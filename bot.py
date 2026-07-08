@@ -1538,9 +1538,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Режим исправления — пользователь нажал "Исправить" ───────
     editing_id = _active_editing_id(context)
     if editing_id is not None:
-        # Исправление — тоже AI-анализ: без доступа не пересчитываем,
-        # иначе кнопка ✏️ превращается в бесплатные анализы после лимита.
-        if not db.has_access(user_id):
+        meal_id = editing_id
+        original_meal = db.get_meal_by_id(meal_id, user_id)
+        # Первое исправление записи бесплатно (уточнение уже оплаченного
+        # анализа), последующие — AI-анализ как обычно: доступ и списание.
+        free_correction = original_meal is not None and not original_meal.get("corrections_used", 0)
+        if not free_correction and not db.has_access(user_id):
             for k in ("editing_meal_id", "editing_meal_description", "editing_since"):
                 context.user_data.pop(k, None)
             await update.message.reply_text(
@@ -1549,12 +1552,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=_paywall_keyboard(lang),
             )
             return
-        meal_id = editing_id
         original_description = context.user_data.get("editing_meal_description") or ""
-        if not original_description:
-            original_meal = db.get_meal_by_id(meal_id, user_id)
-            if original_meal:
-                original_description = original_meal["food_description"]
+        if not original_description and original_meal:
+            original_description = original_meal["food_description"]
         msg = await update.message.reply_text(t(lang, "recalculating"))
         try:
             if original_description:
@@ -1580,8 +1580,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for k in ("editing_meal_id", "editing_meal_description", "editing_since"):
                 context.user_data.pop(k, None)
 
-            # Пересчёт удался → списываем квоту, как в обычном анализе
-            charged = not db.is_paid_active(user_id)
+            # Пересчёт удался → фиксируем исправление; скан списываем
+            # только если бесплатное исправление записи уже потрачено.
+            db.increment_meal_corrections(meal_id, user_id)
+            charged = not free_correction and not db.is_paid_active(user_id)
             if charged:
                 db.use_free_analysis(user_id)
 
@@ -2127,16 +2129,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data.startswith("edit_"):
-        # Исправление — AI-анализ: без доступа сразу пейволл, не входим в режим.
-        if not db.has_access(user_id):
+        meal_id = int(data.split("_")[1])
+        original_meal = db.get_meal_by_id(meal_id, user_id)
+        # Первое исправление записи бесплатно (уточнение уже оплаченного
+        # анализа), дальше — AI-анализ как обычно: без доступа пейволл.
+        free_correction = original_meal is not None and not original_meal.get("corrections_used", 0)
+        if not free_correction and not db.has_access(user_id):
             await query.message.reply_text(
                 _trial_notice(0, lang),
                 parse_mode="Markdown",
                 reply_markup=_paywall_keyboard(lang),
             )
             return
-        meal_id = int(data.split("_")[1])
-        original_meal = db.get_meal_by_id(meal_id, user_id)
         context.user_data["editing_meal_id"] = meal_id
         context.user_data["editing_meal_description"] = original_meal["food_description"] if original_meal else ""
         context.user_data["editing_since"] = time.time()
@@ -2479,9 +2483,11 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # /edit — тоже AI-анализ: требует доступа и списывает квоту,
-    # иначе это обход лимита бесплатных анализов.
-    if not db.has_access(user_id):
+    meal = meals[num - 1]
+    # Первое исправление записи бесплатно (уточнение уже оплаченного анализа),
+    # последующие — AI-анализ как обычно: доступ и списание квоты.
+    free_correction = not meal.get("corrections_used", 0)
+    if not free_correction and not db.has_access(user_id):
         await update.message.reply_text(
             _trial_notice(0, lang),
             parse_mode="Markdown",
@@ -2489,7 +2495,6 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    meal = meals[num - 1]
     msg = await update.message.reply_text(t(lang, "recalculating"))
 
     try:
@@ -2511,7 +2516,8 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             carbs=result["carbs"],
         )
 
-        charged = not db.is_paid_active(user_id)
+        db.increment_meal_corrections(meal["id"], user_id)
+        charged = not free_correction and not db.is_paid_active(user_id)
         if charged:
             db.use_free_analysis(user_id)
 
