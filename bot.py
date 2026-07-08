@@ -2844,56 +2844,59 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
     stale = {k for k in sent_reminders if k.split(":")[-1] < cutoff}
     sent_reminders.difference_update(stale)
 
-    users = db.get_all_notification_users()
-    for user in users:
-        tz_offset = user.get("timezone_offset", 3)
-        tz = timezone(timedelta(hours=tz_offset))
-        now = datetime.now(tz)
-        current_time = now.strftime("%H:%M")
-        today = now.strftime("%Y-%m-%d")
+    try:
+        users = db.get_all_notification_users()
+        for user in users:
+            tz_offset = user.get("timezone_offset", 3)
+            tz = timezone(timedelta(hours=tz_offset))
+            now = datetime.now(tz)
+            current_time = now.strftime("%H:%M")
+            today = now.strftime("%Y-%m-%d")
 
-        meals_to_check = [
-            ("breakfast", user["breakfast_enabled"], user["breakfast_time"], "☕"),
-            ("lunch",     user["lunch_enabled"],     user["lunch_time"],     "🍲"),
-            ("dinner",    user["dinner_enabled"],     user["dinner_time"],    "🍽️"),
-        ]
+            meals_to_check = [
+                ("breakfast", user["breakfast_enabled"], user["breakfast_time"], "☕"),
+                ("lunch",     user["lunch_enabled"],     user["lunch_time"],     "🍲"),
+                ("dinner",    user["dinner_enabled"],     user["dinner_time"],    "🍽️"),
+            ]
 
-        for meal_type, enabled, meal_time, emoji in meals_to_check:
-            if not enabled or meal_time != current_time:
-                continue
-            key = f"{user['user_id']}:{meal_type}:{today}"
-            if key in sent_reminders:
-                continue
+            for meal_type, enabled, meal_time, emoji in meals_to_check:
+                if not enabled or meal_time != current_time:
+                    continue
+                key = f"{user['user_id']}:{meal_type}:{today}"
+                if key in sent_reminders:
+                    continue
 
-            try:
-                user_lang = db.get_user_language(user["user_id"])
-                if user_lang == "auto":
-                    user_lang = "ru"  # default for reminders
-                meal_name = t(user_lang, f"meal_name_{meal_type}")
-                meals = db.get_meals_for_day(user["user_id"], today)
-                total_cal = sum(m["calories"] for m in meals)
-                goal = db.get_goal(user["user_id"])
-                profile = db.get_profile(user["user_id"])
-                if goal:
-                    goal_cal = goal["calories"]
-                elif profile:
-                    goal_cal = (profile["target_cal_low"] + profile["target_cal_high"]) // 2
-                else:
-                    goal_cal = 2000
+                try:
+                    user_lang = db.get_user_language(user["user_id"])
+                    if user_lang == "auto":
+                        user_lang = "ru"  # default for reminders
+                    meal_name = t(user_lang, f"meal_name_{meal_type}")
+                    meals = db.get_meals_for_day(user["user_id"], today)
+                    total_cal = sum(m["calories"] for m in meals)
+                    goal = db.get_goal(user["user_id"])
+                    profile = db.get_profile(user["user_id"])
+                    if goal:
+                        goal_cal = goal["calories"]
+                    elif profile:
+                        goal_cal = (profile["target_cal_low"] + profile["target_cal_high"]) // 2
+                    else:
+                        goal_cal = 2000
 
-                await context.bot.send_message(
-                    chat_id=user["user_id"],
-                    text=t(user_lang, "reminder_text",
-                           emoji=emoji, meal=meal_name,
-                           goal_cal=goal_cal, total_cal=total_cal),
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton(t(user_lang, "btn_reminder_add"), callback_data="quick_add")],
-                        [InlineKeyboardButton(t(user_lang, "btn_reminder_snooze", meal=meal_name), callback_data=f"notif_snooze_{meal_type}")],
-                    ]),
-                )
-                sent_reminders.add(key)
-            except Exception as e:
-                logger.error(f"Failed to send reminder to {user['user_id']}: {e}")
+                    await context.bot.send_message(
+                        chat_id=user["user_id"],
+                        text=t(user_lang, "reminder_text",
+                               emoji=emoji, meal=meal_name,
+                               goal_cal=goal_cal, total_cal=total_cal),
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton(t(user_lang, "btn_reminder_add"), callback_data="quick_add")],
+                            [InlineKeyboardButton(t(user_lang, "btn_reminder_snooze", meal=meal_name), callback_data=f"notif_snooze_{meal_type}")],
+                        ]),
+                    )
+                    sent_reminders.add(key)
+                except Exception as e:
+                    logger.error(f"Failed to send reminder to {user['user_id']}: {e}")
+    except Exception as e:
+        logger.error(f"Meal reminders job error: {e}")
 
     # Вечерний итог дня — 20:00 по таймзоне пользователя
     try:
