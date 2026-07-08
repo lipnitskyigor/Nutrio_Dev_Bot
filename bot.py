@@ -1477,6 +1477,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Режим исправления — пользователь нажал "Исправить" ───────
     if "editing_meal_id" in context.user_data:
+        # Исправление — тоже AI-анализ: без доступа не пересчитываем,
+        # иначе кнопка ✏️ превращается в бесплатные анализы после лимита.
+        if not db.has_access(user_id):
+            context.user_data.pop("editing_meal_id", None)
+            context.user_data.pop("editing_meal_description", None)
+            await update.message.reply_text(
+                _trial_notice(0, lang),
+                parse_mode="Markdown",
+                reply_markup=_paywall_keyboard(lang),
+            )
+            return
         meal_id = context.user_data["editing_meal_id"]
         original_description = context.user_data.get("editing_meal_description") or ""
         if not original_description:
@@ -1508,6 +1519,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("editing_meal_id", None)
             context.user_data.pop("editing_meal_description", None)
 
+            # Пересчёт удался → списываем квоту, как в обычном анализе
+            charged = not db.is_paid_active(user_id)
+            if charged:
+                db.use_free_analysis(user_id)
+
             today = date.today().isoformat()
             meals = db.get_meals_for_day(user_id, today)
             total_cal = sum(m["calories"] for m in meals)
@@ -1520,6 +1536,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown",
                 reply_markup=_meal_keyboard(meal_id, lang),
             )
+            if charged:
+                left = db.get_free_analyses_left(user_id)
+                notice = _trial_notice(left, lang)
+                if notice:
+                    await update.message.reply_text(
+                        notice,
+                        parse_mode="Markdown",
+                        reply_markup=_paywall_keyboard(lang) if left == 0 else None,
+                    )
         except Exception as e:
             logger.error(f"Error in editing flow: {e}")
             await msg.edit_text(t(lang, "correction_error"))
@@ -2039,6 +2064,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data.startswith("edit_"):
+        # Исправление — AI-анализ: без доступа сразу пейволл, не входим в режим.
+        if not db.has_access(user_id):
+            await query.message.reply_text(
+                _trial_notice(0, lang),
+                parse_mode="Markdown",
+                reply_markup=_paywall_keyboard(lang),
+            )
+            return
         meal_id = int(data.split("_")[1])
         original_meal = db.get_meal_by_id(meal_id, user_id)
         context.user_data["editing_meal_id"] = meal_id
@@ -2382,6 +2415,16 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # /edit — тоже AI-анализ: требует доступа и списывает квоту,
+    # иначе это обход лимита бесплатных анализов.
+    if not db.has_access(user_id):
+        await update.message.reply_text(
+            _trial_notice(0, lang),
+            parse_mode="Markdown",
+            reply_markup=_paywall_keyboard(lang),
+        )
+        return
+
     meal = meals[num - 1]
     msg = await update.message.reply_text(t(lang, "recalculating"))
 
@@ -2404,6 +2447,10 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             carbs=result["carbs"],
         )
 
+        charged = not db.is_paid_active(user_id)
+        if charged:
+            db.use_free_analysis(user_id)
+
         updated = db.get_meals_for_day_with_ids(user_id, today)
         total_cal = sum(m["calories"] for m in updated)
         total_protein = sum(m["protein"] for m in updated)
@@ -2417,6 +2464,15 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
               total_cal=total_cal, total_protein=total_protein),
             parse_mode="Markdown"
         )
+        if charged:
+            left = db.get_free_analyses_left(user_id)
+            notice = _trial_notice(left, lang)
+            if notice:
+                await update.message.reply_text(
+                    notice,
+                    parse_mode="Markdown",
+                    reply_markup=_paywall_keyboard(lang) if left == 0 else None,
+                )
 
     except Exception as e:
         logger.error(f"Error in edit_command: {e}")
