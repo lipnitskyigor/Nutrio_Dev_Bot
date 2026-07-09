@@ -2969,6 +2969,40 @@ async def leads_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def pushcheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Админ-диагностика вечернего пуша: попадаю ли я в выборку и почему."""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    uid = update.effective_user.id
+
+    terms = db.get_terms_accepted(uid)
+    notif = db.get_notifications(uid)
+    candidates = db.get_users_for_evening_push()
+    me = next((u for u in candidates if u["user_id"] == uid), None)
+    weekly = db.get_weekly_summary(uid)
+    last_meal_day = weekly[0]["day"] if weekly else None
+
+    lines = ["🔍 *Диагностика вечернего пуша*", ""]
+    lines.append(f"Кандидатов в выборке сейчас: *{len(candidates)}*")
+    lines.append(f"Я в выборке: {'✅ да' if me else '❌ нет'}")
+    lines.append("")
+    lines.append(f"terms\\_accepted: {'✅' if terms else '❌ (нет — в выборку не попадаю)'}")
+    lines.append(f"Последняя еда: {last_meal_day or '❌ нет записей за 7 дней'}"
+                 + ("" if last_meal_day else " (нужна еда за 3 дня)"))
+    if notif:
+        toggles = f"завтрак={notif['breakfast_enabled']} обед={notif['lunch_enabled']} ужин={notif['dinner_enabled']}"
+        all_off = not (notif["breakfast_enabled"] or notif["lunch_enabled"] or notif["dinner_enabled"])
+        lines.append(f"Напоминания: {toggles}"
+                     + (" — ❌ все выключены → вечерний пуш тоже отключён" if all_off else ""))
+        lines.append(f"Таймзона: offset={notif['timezone_offset']}, tz\\_name={notif.get('tz_name') or '—'}")
+        local = datetime.now(_row_tz(notif)).strftime("%H:%M")
+        lines.append(f"Моё локальное время для бота: *{local}* (окно пуша 20:00–20:10)")
+    else:
+        lines.append("Напоминания: строки нет → tz по умолчанию UTC+3, "
+                     f"локальное время бота: *{datetime.now(timezone(timedelta(hours=3))).strftime('%H:%M')}*")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
 async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = _lang(user_id, update.effective_user.language_code)
@@ -3503,6 +3537,7 @@ def main():
     app.add_handler(CommandHandler("analytics", analytics_command))
     app.add_handler(CommandHandler("funnel", funnel_command))
     app.add_handler(CommandHandler("leads", leads_command))
+    app.add_handler(CommandHandler("pushcheck", pushcheck_command))
     app.add_handler(CommandHandler("notify", notify_command))
     app.add_handler(CommandHandler("subscribe", subscribe_command))
     app.add_handler(CommandHandler("support", support_command))
