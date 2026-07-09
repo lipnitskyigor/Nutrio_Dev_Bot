@@ -364,4 +364,9 @@ texts = {
     "btn_onb_reminders_yes": "🔔 Xatırlatmaları qurmaq",
     "btn_onb_reminders_skip": "İndi yox",
 
+
+    "dst_prompt": "⏰ Həftə sonu bəzi ölkələrdə saatlar dəyişdirildi. Səndə vaxt dəyişdi?",
+    "btn_dst_yes": "Bəli, dəyişdi",
+    "btn_dst_no": "Xeyr, bizdə dəyişmir",
+    "dst_saved": "✅ Hazırdır! İndi səndə {time}. Xatırlatmalar bu vaxta görə gələcək.",
 }

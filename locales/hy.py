@@ -362,4 +362,9 @@ texts = {
     "btn_onb_reminders_yes": "🔔 Hishetsumner kargirel",
     "btn_onb_reminders_skip": "Ays pahu che",
 
+
+    "dst_prompt": "⏰ Հանգստյան օրերին որոշ երկրներում ժամացույցները փոխվել են։ Քո ժամանակը փոխվե՞լ է։",
+    "btn_dst_yes": "Այո, փոխվել է",
+    "btn_dst_no": "Ոչ, մեզ մոտ չեն փոխում",
+    "dst_saved": "✅ Պատրաստ է! Հիմա քեզ մոտ {time} է։ Հիշեցումները կգան այս ժամով։",
 }

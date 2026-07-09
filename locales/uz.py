@@ -362,4 +362,9 @@ texts = {
     "btn_onb_reminders_yes": "🔔 Eslatmalarni sozlash",
     "btn_onb_reminders_skip": "Hozir emas",
 
+
+    "dst_prompt": "⏰ Dam olish kunlari ayrim mamlakatlarda soatlar o'zgartirildi. Senda vaqt o'zgardimi?",
+    "btn_dst_yes": "Ha, o'zgardi",
+    "btn_dst_no": "Yo'q, bizda o'zgarmaydi",
+    "dst_saved": "✅ Tayyor! Hozir senda {time}. Eslatmalar shu vaqt bo'yicha keladi.",
 }

@@ -352,4 +352,9 @@ texts = {
     "btn_onb_reminders_yes": "🔔 Configurar recordatorios",
     "btn_onb_reminders_skip": "Ahora no",
 
+
+    "dst_prompt": "⏰ Este fin de semana cambió la hora en algunos países. ¿Cambió tu hora local?",
+    "btn_dst_yes": "Sí, cambió",
+    "btn_dst_no": "No, aquí no cambia",
+    "dst_saved": "✅ ¡Listo! Tu hora: {time}. Los recordatorios seguirán este horario.",
 }

@@ -350,4 +350,9 @@ texts = {
     "btn_onb_reminders_yes": "🔔 Ustaw przypomnienia",
     "btn_onb_reminders_skip": "Nie teraz",
 
+
+    "dst_prompt": "⏰ W weekend w niektórych krajach przestawiono zegarki. Czy twój czas się zmienił?",
+    "btn_dst_yes": "Tak, zmienił się",
+    "btn_dst_no": "Nie, u nas nie zmieniają",
+    "dst_saved": "✅ Gotowe! Twoja godzina: {time}. Przypomnienia będą przychodzić według niej.",
 }

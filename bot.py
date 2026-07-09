@@ -626,6 +626,25 @@ def _within_window(now: datetime, hhmm: str, window_min: int = 10) -> bool:
     return 0 <= delta < window_min * 60
 
 
+# Нейтральные IANA-зоны с правилами перевода ЕС по «зимнему» смещению.
+# Без привязки к городам: EET = «восточноевропейское время» и т.п.
+_DST_ZONE_BY_STD_OFFSET = {0: "WET", 1: "CET", 2: "EET"}
+
+
+def _dst_transition_delta() -> int | None:
+    """+1/−1, если в последние 48 часов был перевод часов по правилам ЕС
+    (WET/CET/EET переводятся в один момент), иначе None."""
+    tz = _load_tz("CET")
+    if tz is None:
+        return None
+    now = datetime.now(tz)
+    diff = now.utcoffset() - (now - timedelta(hours=48)).utcoffset()
+    hours = diff.total_seconds() / 3600
+    if hours == 0:
+        return None
+    return 1 if hours > 0 else -1
+
+
 def _tz_str(offset: int) -> str:
     return f"UTC+{offset}" if offset >= 0 else f"UTC{offset}"
 
@@ -2265,6 +2284,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
+    elif data.startswith("dstq:"):
+        # Ответ на опрос про перевод часов. В callback зашиты итоговое
+        # смещение и нейтральная IANA-зона (EET/CET/WET либо Etc/GMT-N):
+        # «перевелось» → зона с правилами ЕС, DST дальше автоматом;
+        # «не переводят» → фикс-зона, больше никогда не спрашиваем.
+        _, off_str, tz_name = data.split(":", 2)
+        offset = int(off_str)
+        db.get_or_create_notifications(user_id)
+        db.set_timezone(user_id, offset, tz_name)
+        local = datetime.now(timezone(timedelta(hours=offset))).strftime("%H:%M")
+        await query.edit_message_text(t(lang, "dst_saved", time=local))
+
     # Легаси-кнопки с целым смещением — из старых сообщений в чатах
     elif data.startswith("tz_"):
         offset = int(data[3:])
@@ -3124,6 +3155,54 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Failed to send weight tip to {user['user_id']}: {e}")
     except Exception as e:
         logger.error(f"Weight tip job error: {e}")
+
+    # Самообучающийся опрос про перевод часов: по одному вводу времени регион
+    # юзера не определить (зимой +2 — и Киев, и Калининград; летом +3 — и Киев,
+    # и Москва). В окно перехода спрашиваем один раз; ответ фиксирует
+    # нейтральную зону в tz_name — дальше DST считается автоматически.
+    try:
+        dst_delta = _dst_transition_delta()
+        if dst_delta is not None:
+            # Затронутые «зимние» смещения 0..+2: весной юзер хранит зимнее
+            # смещение (0..2), осенью — летнее (1..3).
+            lo, hi = (0, 2) if dst_delta > 0 else (1, 3)
+            for user in db.get_users_for_dst_prompt(lo, hi):
+                uid = user["user_id"]
+                off = user["timezone_offset"]
+                std_offset = off if dst_delta > 0 else off + dst_delta
+                zone = _DST_ZONE_BY_STD_OFFSET.get(std_offset)
+                if zone is None:
+                    continue
+                # Не будим ночью: шлём днём по сохранённому (возможно уже
+                # устаревшему на час) времени юзера — ±1 час не критичен.
+                local = datetime.now(timezone(timedelta(hours=off)))
+                if not (10 <= local.hour <= 21):
+                    continue
+                try:
+                    user_lang = db.get_user_language(uid)
+                    if user_lang == "auto":
+                        user_lang = "ru"
+                    sign = "-" if off >= 0 else "+"
+                    keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton(
+                            t(user_lang, "btn_dst_yes"),
+                            callback_data=f"dstq:{off + dst_delta}:{zone}")],
+                        [InlineKeyboardButton(
+                            t(user_lang, "btn_dst_no"),
+                            callback_data=f"dstq:{off}:Etc/GMT{sign}{abs(off)}")],
+                    ])
+                    await context.bot.send_message(
+                        chat_id=uid,
+                        text=t(user_lang, "dst_prompt"),
+                        reply_markup=keyboard,
+                    )
+                    db.mark_dst_prompt_sent(uid)
+                except Forbidden:
+                    db.mark_dst_prompt_sent(uid)
+                except Exception as e:
+                    logger.error(f"Failed to send DST prompt to {uid}: {e}")
+    except Exception as e:
+        logger.error(f"DST prompt job error: {e}")
 
 
 # ── Stripe webhook HTTP server ────────────────────────────────────────────────

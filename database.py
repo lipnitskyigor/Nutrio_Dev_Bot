@@ -147,9 +147,12 @@ class Database:
                     # Сколько раз запись исправляли (✏️ / /edit). Первое исправление
                     # каждой записи бесплатно, дальше списывается скан.
                     "ALTER TABLE meals ADD COLUMN IF NOT EXISTS corrections_used INTEGER NOT NULL DEFAULT 0",
-                    # IANA-имя таймзоны (Europe/Kyiv и т.п.) — учитывает DST.
+                    # IANA-имя таймзоны (нейтральные EET/CET/WET/Etc/GMT-N) — DST.
                     # NULL → фолбэк на целочисленный timezone_offset.
                     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS tz_name TEXT DEFAULT NULL",
+                    # Когда юзеру отправляли вопрос про перевод часов —
+                    # защита от повторной отправки в одно окно перехода.
+                    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS dst_prompt_sent_at TIMESTAMP DEFAULT NULL",
                 ]:
                     cur.execute(col_def)
             conn.commit()
@@ -413,6 +416,33 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE users SET weight_tip_sent = 1 WHERE user_id = %s",
+                    (user_id,)
+                )
+            conn.commit()
+
+    def get_users_for_dst_prompt(self, min_offset: int, max_offset: int) -> list:
+        """Кандидаты на вопрос о переводе часов: ручное смещение в диапазоне
+        затронутых переходом зон, IANA-зона ещё не выяснена (tz_name IS NULL),
+        в это окно перехода ещё не спрашивали. Ответивший юзер получает
+        tz_name и из выборки выпадает навсегда."""
+        with self._conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT n.user_id, n.timezone_offset
+                    FROM notifications n
+                    JOIN users u ON u.user_id = n.user_id AND u.terms_accepted = 1
+                    WHERE n.tz_name IS NULL
+                      AND n.timezone_offset BETWEEN %s AND %s
+                      AND (n.dst_prompt_sent_at IS NULL
+                           OR n.dst_prompt_sent_at < NOW() - INTERVAL '30 days')
+                """, (min_offset, max_offset))
+                return [dict(row) for row in cur.fetchall()]
+
+    def mark_dst_prompt_sent(self, user_id: int):
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE notifications SET dst_prompt_sent_at = NOW() WHERE user_id = %s",
                     (user_id,)
                 )
             conn.commit()

@@ -348,4 +348,9 @@ texts = {
     "btn_onb_reminders_yes": "🔔 Set up reminders",
     "btn_onb_reminders_skip": "Not now",
 
+
+    "dst_prompt": "⏰ Clocks changed in some countries this weekend. Did your local time change?",
+    "btn_dst_yes": "Yes, it changed",
+    "btn_dst_no": "No, we don't change clocks",
+    "dst_saved": "✅ Done! Your time now: {time}. Reminders will follow it.",
 }
