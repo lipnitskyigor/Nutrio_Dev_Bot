@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+ANALYSIS_MODEL = os.environ.get("ANALYSIS_MODEL", "claude-sonnet-4-6")
 ADMIN_ID = 148160233
 
 PRICE_1M = 100   # Telegram Stars (~$2)
@@ -370,7 +371,7 @@ def analyze_food_text(text: str, lang: str = "ru") -> dict:
     """Send food description to Claude and get calorie analysis."""
     claude_lang = t(lang, "claude_lang")
     response = claude.messages.create(
-        model="claude-sonnet-4-6",
+        model=ANALYSIS_MODEL,
         max_tokens=1024,
         messages=[
             {
@@ -407,7 +408,7 @@ def analyze_food_correction(original_description: str, correction: str, lang: st
     """Re-analyze a meal with user's correction applied, keeping unchanged items intact."""
     claude_lang = t(lang, "claude_lang")
     response = claude.messages.create(
-        model="claude-sonnet-4-6",
+        model=ANALYSIS_MODEL,
         max_tokens=1024,
         messages=[
             {
@@ -450,7 +451,7 @@ def analyze_food_image(image_bytes: bytes, caption: str = None, lang: str = "ru"
     caption_hint = f'\nThe user also wrote: "{caption}"' if caption else ""
 
     response = claude.messages.create(
-        model="claude-sonnet-4-6",
+        model=ANALYSIS_MODEL,
         max_tokens=1024,
         messages=[
             {
@@ -741,6 +742,24 @@ def _trial_notice(left: int, lang: str = "ru") -> str:
         return t(lang, "trial_some_left", left=left, limit=FREE_ANALYSES_LIMIT)
     else:
         return t(lang, "trial_many_left", left=left, limit=FREE_ANALYSES_LIMIT)
+
+
+async def _send_post_scan_trial_notice(message, user_id: int, lang: str, source: str):
+    """Уведомление об остатке триала ПОД уже отданным результатом анализа.
+    Если этот скан был последним — логирует limit_reached + paywall_shown
+    и прикрепляет кнопку оплаты. source: photo / text / correction."""
+    left = db.get_free_analyses_left(user_id)
+    notice = _trial_notice(left, lang)
+    if not notice:
+        return
+    if left == 0:
+        db.log_event(user_id, "limit_reached", source)
+        db.log_event(user_id, "paywall_shown", f"{source}_last_scan")
+    await message.reply_text(
+        notice,
+        parse_mode="Markdown",
+        reply_markup=_paywall_keyboard(lang) if left == 0 else None,
+    )
 
 
 async def _send_terms(message, name: str, lang: str = "ru"):
@@ -1191,6 +1210,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _send_onb_goal(update.message, lang)
         return
     if not db.has_access(user_id):
+        db.log_event(user_id, "paywall_shown", "photo_blocked")
         await update.message.reply_text(
             _trial_notice(0, lang),
             parse_mode="Markdown",
@@ -1207,6 +1227,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if not db.is_paid_active(user_id):
             if not db.reserve_free_analysis(user_id):
+                db.log_event(user_id, "paywall_shown", "photo_blocked")
                 await msg.edit_text(_trial_notice(0, lang), parse_mode="Markdown",
                                     reply_markup=_paywall_keyboard(lang))
                 return
@@ -1279,14 +1300,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=_meal_keyboard(meal_id, lang),
         )
         if charged:
-            left = db.get_free_analyses_left(user_id)
-            notice = _trial_notice(left, lang)
-            if notice:
-                await update.message.reply_text(
-                    notice,
-                    parse_mode="Markdown",
-                    reply_markup=_paywall_keyboard(lang) if left == 0 else None,
-                )
+            await _send_post_scan_trial_notice(update.message, user_id, lang, "photo")
         await _maybe_send_profile_prompt(update.message, user_id, context, lang)
 
     except json.JSONDecodeError:
@@ -1566,6 +1580,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not free_correction and not db.has_access(user_id):
             for k in ("editing_meal_id", "editing_meal_description", "editing_since"):
                 context.user_data.pop(k, None)
+            db.log_event(user_id, "paywall_shown", "correction_blocked")
             await update.message.reply_text(
                 _trial_notice(0, lang),
                 parse_mode="Markdown",
@@ -1584,6 +1599,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not db.reserve_free_analysis(user_id):
                     for k in ("editing_meal_id", "editing_meal_description", "editing_since"):
                         context.user_data.pop(k, None)
+                    db.log_event(user_id, "paywall_shown", "correction_blocked")
                     await msg.edit_text(_trial_notice(0, lang), parse_mode="Markdown",
                                         reply_markup=_paywall_keyboard(lang))
                     return
@@ -1631,14 +1647,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=_meal_keyboard(meal_id, lang),
             )
             if charged:
-                left = db.get_free_analyses_left(user_id)
-                notice = _trial_notice(left, lang)
-                if notice:
-                    await update.message.reply_text(
-                        notice,
-                        parse_mode="Markdown",
-                        reply_markup=_paywall_keyboard(lang) if left == 0 else None,
-                    )
+                await _send_post_scan_trial_notice(update.message, user_id, lang, "correction")
         except Exception as e:
             if charged and not saved:
                 db.refund_free_analysis(user_id)
@@ -1715,6 +1724,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not db.has_access(user_id):
+        db.log_event(user_id, "paywall_shown", "text_blocked")
         await update.message.reply_text(
             _trial_notice(0, lang),
             parse_mode="Markdown",
@@ -1730,6 +1740,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if not db.is_paid_active(user_id):
             if not db.reserve_free_analysis(user_id):
+                db.log_event(user_id, "paywall_shown", "text_blocked")
                 await msg.edit_text(_trial_notice(0, lang), parse_mode="Markdown",
                                     reply_markup=_paywall_keyboard(lang))
                 return
@@ -1768,14 +1779,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=_meal_keyboard(meal_id, lang),
         )
         if charged:
-            left = db.get_free_analyses_left(user_id)
-            notice = _trial_notice(left, lang)
-            if notice:
-                await update.message.reply_text(
-                    notice,
-                    parse_mode="Markdown",
-                    reply_markup=_paywall_keyboard(lang) if left == 0 else None,
-                )
+            await _send_post_scan_trial_notice(update.message, user_id, lang, "text")
         await _maybe_send_profile_prompt(update.message, user_id, context, lang)
 
     except json.JSONDecodeError:
@@ -2178,6 +2182,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # анализа), дальше — AI-анализ как обычно: без доступа пейволл.
         free_correction = original_meal is not None and not original_meal.get("corrections_used", 0)
         if not free_correction and not db.has_access(user_id):
+            db.log_event(user_id, "paywall_shown", "correction_blocked")
             await query.message.reply_text(
                 _trial_notice(0, lang),
                 parse_mode="Markdown",
@@ -2358,6 +2363,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "show_subscribe":
+        db.log_event(user_id, "paywall_cta_clicked")
         left = db.get_free_analyses_left(user_id)
         if left > 0:
             trial_line = t(lang, "subscribe_remaining", left=left, limit=FREE_ANALYSES_LIMIT)
@@ -2371,6 +2377,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data in ("sub_1m", "sub_3m"):
+        db.log_event(user_id, "plan_selected", data)
         months = 3 if data == "sub_3m" else 1
         price = PRICE_3M if months == 3 else PRICE_1M
         title_key = "sub_invoice_title_3m" if months == 3 else "sub_invoice_title_1m"
@@ -2393,6 +2400,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not STRIPE_SECRET_KEY:
             await query.answer("Card payment temporarily unavailable", show_alert=True)
             return
+        db.log_event(user_id, "plan_selected", data)
         months = 3 if data == "stripe_3m" else 1
         price_cents = PRICE_3M_USD if months == 3 else PRICE_1M_USD
         title_key = "sub_invoice_title_3m" if months == 3 else "sub_invoice_title_1m"
@@ -2540,6 +2548,7 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # последующие — AI-анализ как обычно: доступ и списание квоты.
     free_correction = not meal.get("corrections_used", 0)
     if not free_correction and not db.has_access(user_id):
+        db.log_event(user_id, "paywall_shown", "correction_blocked")
         await update.message.reply_text(
             _trial_notice(0, lang),
             parse_mode="Markdown",
@@ -2555,6 +2564,7 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if not free_correction and not db.is_paid_active(user_id):
             if not db.reserve_free_analysis(user_id):
+                db.log_event(user_id, "paywall_shown", "correction_blocked")
                 await msg.edit_text(_trial_notice(0, lang), parse_mode="Markdown",
                                     reply_markup=_paywall_keyboard(lang))
                 return
@@ -2597,14 +2607,7 @@ async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
               total_cal=total_cal, total_protein=total_protein),
         )
         if charged:
-            left = db.get_free_analyses_left(user_id)
-            notice = _trial_notice(left, lang)
-            if notice:
-                await update.message.reply_text(
-                    notice,
-                    parse_mode="Markdown",
-                    reply_markup=_paywall_keyboard(lang) if left == 0 else None,
-                )
+            await _send_post_scan_trial_notice(update.message, user_id, lang, "correction")
 
     except Exception as e:
         if charged and not saved:
@@ -3051,6 +3054,7 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
     payload = update.message.successful_payment.invoice_payload
     months = 3 if payload in ("sub_3m", "stripe_3m") else 1
     db.activate_subscription(user_id, months)
+    db.log_event(user_id, "purchase_completed", payload)
     label = t(lang, "sub_3m_label") if months == 3 else t(lang, "sub_1m_label")
     await update.message.reply_text(
         t(lang, "payment_success", label=label),
@@ -3276,6 +3280,7 @@ class _StripeWebhookHandler(BaseHTTPRequestHandler):
                     user_id = int(user_id_str)
                     months  = int(months_str)
                     db.activate_subscription(user_id, months)
+                    db.log_event(user_id, "purchase_completed", f"stripe_{months}m")
                     _payment_queue.put({"user_id": user_id, "months": months, "lang": lang})
                     logger.info(f"Stripe payment OK: user={user_id} months={months}")
                 except Exception as e:
@@ -3313,6 +3318,9 @@ async def send_winback(context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown",
                 reply_markup=_paywall_keyboard(lang),
             )
+            # Отдельный source: win-back — проактивная рассылка, не смешивать
+            # с показами пейвола в ответ на действие юзера.
+            db.log_event(uid, "paywall_shown", "winback")
             db.mark_winback_sent(uid)
         except Forbidden:
             # Юзер заблокировал бота — помечаем, чтобы не ретраить каждый час

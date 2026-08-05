@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -7,6 +8,8 @@ import psycopg2
 import psycopg2.extras
 
 FREE_ANALYSES_LIMIT = 15
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
@@ -121,6 +124,22 @@ class Database:
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                # Воронка пейвола: limit_reached / paywall_shown /
+                # paywall_cta_clicked / plan_selected / purchase_completed.
+                # meta — уточнение события (тариф, канал оплаты), может быть NULL.
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS events (
+                        id BIGSERIAL PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        event TEXT NOT NULL,
+                        meta TEXT,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_events_event_created "
+                    "ON events (event, created_at)"
+                )
                 # Safe column additions (idempotent)
                 for col_def in [
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS target_weight_warning_level TEXT",
@@ -679,6 +698,20 @@ class Database:
                     (FREE_ANALYSES_LIMIT, user_id)
                 )
             conn.commit()
+
+    def log_event(self, user_id: int, event: str, meta: str = None):
+        """Пишет событие воронки. Никогда не бросает исключение —
+        сбой аналитики не должен ломать пользовательский хендлер."""
+        try:
+            with self._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO events (user_id, event, meta) VALUES (%s, %s, %s)",
+                        (user_id, event, meta)
+                    )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"log_event failed: user={user_id} event={event}: {e}")
 
     def bump_onb_step(self, user_id: int, step: int):
         """Запоминает самый дальний шаг онбординга (не уменьшается)."""
